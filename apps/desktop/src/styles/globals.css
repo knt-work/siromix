@@ -1,0 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap");
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Roboto", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+}

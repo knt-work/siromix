@@ -3,6 +3,7 @@ use std::path::PathBuf;
 pub mod read;
 pub mod assets;
 pub mod model;
+pub mod parser;
 
 #[derive(Debug)]
 pub enum AppError {

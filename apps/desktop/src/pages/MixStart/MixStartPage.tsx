@@ -1,5 +1,6 @@
 // src/pages/MixStart/MixStartPage.tsx
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import { LoadingOverlay } from "../../components/LoadingOverlay";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -11,6 +12,7 @@ import {
 export function MixStartPage() {
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -25,7 +27,12 @@ export function MixStartPage() {
       return;
     }
 
-    // TODO: xử lý trộn đề ở bước tiếp theo
+    setIsAnalyzing(true);
+    // Demo: giả lập quá trình phân tích đề trong 800ms
+    setTimeout(() => {
+      setIsAnalyzing(false);
+      // TODO: xử lý trộn đề ở bước tiếp theo
+    }, 800);
   };
 
   return (
@@ -179,6 +186,7 @@ export function MixStartPage() {
               </div>
             </div>
           </main>
+          <LoadingOverlay open={isAnalyzing} />
           {isErrorModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
               <div

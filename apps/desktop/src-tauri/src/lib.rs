@@ -3,6 +3,9 @@ mod docx;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::fs;
+
+use crate::docx::model::ParsedDoc;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -128,12 +131,44 @@ fn analyze_docx(
     })
 }
 
+/// Đọc `<workspace>/parsed.json` cho một `job_id` và trả về `ParsedDoc` cho frontend.
+#[tauri::command]
+fn get_parsed(
+    app_handle: tauri::AppHandle,
+    job_id: String,
+) -> Result<ParsedDoc, String> {
+    use crate::storage::paths;
+
+    let workspace_dir = paths::job_workspace_dir(&app_handle, &job_id)?;
+    let parsed_path = workspace_dir.join("parsed.json");
+
+    if !parsed_path.exists() {
+        return Err(format!(
+            "Không tìm thấy parsed.json cho job_id {} tại {}",
+            job_id,
+            parsed_path.to_str().unwrap_or("<invalid-path>")
+        ));
+    }
+
+    let data = fs::read(&parsed_path).map_err(|e| {
+        format!(
+            "Không đọc được parsed.json tại {}: {e}",
+            parsed_path.to_str().unwrap_or("<invalid-path>")
+        )
+    })?;
+
+    let parsed: ParsedDoc = serde_json::from_slice(&data)
+        .map_err(|e| format!("Không parse được parsed.json: {e}"))?;
+
+    Ok(parsed)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet, analyze_docx])
+        .invoke_handler(tauri::generate_handler![greet, analyze_docx, get_parsed])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

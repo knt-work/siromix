@@ -1,8 +1,89 @@
 import type { FC } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { invoke } from "@tauri-apps/api/core";
+
+type Segment =
+  | { type: "Text"; text: string }
+  | { type: "Image"; asset_path: string }
+  | { type: "Math"; omml: string };
+
+type OptionItem = {
+  label: string;
+  locked: boolean;
+  content: Segment[];
+};
+
+type Question = {
+  number: number;
+  stem: Segment[];
+  options: OptionItem[];
+  correct_label: string;
+};
+
+type ParsedDoc = {
+  questions: Question[];
+};
 
 export const PreviewPage: FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
+
+  const [parsed, setParsed] = useState<ParsedDoc | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+
+    let isCancelled = false;
+    setLoading(true);
+    setError(null);
+
+    invoke<ParsedDoc>("get_parsed", { jobId })
+      .then((doc) => {
+        if (isCancelled) return;
+        setParsed(doc);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        const message =
+          err instanceof Error ? err.message : String(err ?? "Unknown error");
+        setError(message);
+        setLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [jobId]);
+
+  const renderSegment = (segment: Segment, key: number) => {
+    switch (segment.type) {
+      case "Text":
+        return <span key={key}>{segment.text}</span>;
+      case "Image":
+        return (
+          <span
+            key={key}
+            className="inline-block rounded bg-slate-200 px-1 text-xs text-slate-600"
+          >
+            [Ảnh]
+          </span>
+        );
+      case "Math":
+        return (
+          <span
+            key={key}
+            className="inline-block rounded bg-slate-200 px-1 text-xs text-slate-600"
+          >
+            [Công thức]
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-10">
@@ -13,6 +94,66 @@ export const PreviewPage: FC = () => {
         <p className="mt-4 text-sm text-slate-600">
           Job ID: <span className="font-mono text-slate-800">{jobId}</span>
         </p>
+
+        {loading && (
+          <p className="mt-6 text-sm text-slate-600">Đang tải dữ liệu đề...</p>
+        )}
+
+        {error && !loading && (
+          <p className="mt-6 text-sm text-rose-600">
+            Không tải được dữ liệu đề: {error}
+          </p>
+        )}
+
+        {!loading && !error && parsed && (
+          <div className="mt-8 space-y-6">
+            {parsed.questions.map((q) => (
+              <div
+                key={q.number}
+                className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="mt-1 text-sm font-semibold text-slate-700">
+                    Câu {q.number}.
+                  </div>
+                  <div className="flex-1 text-sm text-slate-800">
+                    {q.stem.map((seg, idx) => renderSegment(seg, idx))}
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-1.5 text-sm">
+                  {q.options.map((opt) => {
+                    const isCorrect =
+                      q.correct_label && opt.label === q.correct_label;
+                    return (
+                      <div
+                        key={opt.label}
+                        className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
+                          isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
+                        }`}
+                      >
+                        <div className="mt-0.5 w-6 shrink-0 text-slate-700">
+                          {opt.label}.
+                        </div>
+                        <div className="flex-1 text-slate-800">
+                          {opt.content.length === 0 ? (
+                            <span className="italic text-slate-400">
+                              (Trống)
+                            </span>
+                          ) : (
+                            opt.content.map((seg, idx) =>
+                              renderSegment(seg, idx),
+                            )
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

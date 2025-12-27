@@ -1,6 +1,7 @@
 use regex::Regex;
 
 use crate::docx::model::{OptionItem, ParsedDoc, Question, Segment};
+use crate::docx::ExtractedAsset;
 
 /// Parse a list of paragraph texts (already extracted from the DOCX)
 /// into a `ParsedDoc` following the trắc nghiệm rules.
@@ -144,4 +145,69 @@ pub fn parse_paragraphs(paragraphs: &[String]) -> ParsedDoc {
     }
 
     ParsedDoc { questions }
+}
+
+/// Inline piece inside a paragraph before being converted to high-level
+/// `Segment`s. This is intended to be produced by the lower-level DOCX
+/// XML walker:
+/// - Text pieces come from normal `w:t` runs.
+/// - Math pieces come from `m:oMath` or `m:oMathPara` nodes, with
+///   `omml` storing the raw OMML XML.
+/// - Image pieces correspond to inline images (`wp:inline` inside
+///   `w:drawing`). Asset mapping is resolved by `build_segments_from_pieces`
+///   using the global order of appearance.
+#[derive(Debug, Clone)]
+pub enum InlinePiece {
+    Text(String),
+    Math { omml: String },
+    Image,
+}
+
+/// Convert a sequence of inline pieces in document order into
+/// high-level `Segment`s, mapping images to the extracted assets
+/// using their order of appearance in the whole document.
+///
+/// - `assets`: list returned from `assets::extract_media`.
+/// - `next_asset_index`: mutable cursor shared across the whole
+///   document; each time an `InlinePiece::Image` is seen, the
+///   corresponding asset is taken from `assets[*next_asset_index]`
+///   (if available) and the cursor is incremented.
+/// - If there are more images than assets, remaining images will
+///   still produce `Segment::Image` with an empty `asset_path`.
+pub fn build_segments_from_pieces(
+    pieces: &[InlinePiece],
+    assets: &[ExtractedAsset],
+    next_asset_index: &mut usize,
+) -> Vec<Segment> {
+    let mut segments = Vec::new();
+
+    for piece in pieces {
+        match piece {
+            InlinePiece::Text(text) => {
+                if !text.is_empty() {
+                    segments.push(Segment::Text {
+                        text: text.clone(),
+                    });
+                }
+            }
+            InlinePiece::Math { omml } => {
+                segments.push(Segment::Math {
+                    omml: omml.clone(),
+                });
+            }
+            InlinePiece::Image => {
+                let asset_path = if *next_asset_index < assets.len() {
+                    let p = &assets[*next_asset_index].absolute_path;
+                    *next_asset_index += 1;
+                    p.to_string_lossy().to_string()
+                } else {
+                    String::new()
+                };
+
+                segments.push(Segment::Image { asset_path });
+            }
+        }
+    }
+
+    segments
 }

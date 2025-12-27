@@ -11,7 +11,9 @@ fn greet(name: &str) -> String {
 
 #[derive(Deserialize)]
 pub struct AnalyzeDocxPayload {
+    #[serde(rename = "jobId")]
     pub job_id: String,
+    #[serde(rename = "sourcePath")]
     pub source_path: String,
 }
 
@@ -24,8 +26,8 @@ pub struct AnalyzeDocxResponse {
     pub workspace_path: String,
 }
 
-#[tauri::command(rename = "analyze_docx")]
-fn analyze_docx_handler(
+#[tauri::command]
+fn analyze_docx(
     app_handle: tauri::AppHandle,
     payload: AnalyzeDocxPayload,
 ) -> Result<AnalyzeDocxResponse, String> {
@@ -59,7 +61,8 @@ fn analyze_docx_handler(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, analyze_docx_handler])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![greet, analyze_docx])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

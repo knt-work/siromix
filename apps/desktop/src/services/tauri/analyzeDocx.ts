@@ -14,5 +14,6 @@ export type AnalyzeDocxResult = {
 export async function analyzeDocx(
   payload: AnalyzeDocxPayload,
 ): Promise<AnalyzeDocxResult> {
-  return invoke<AnalyzeDocxResult>("analyze_docx", payload);
+  // Tauri command nhận tham số tên là `payload`, nên cần wrap lại.
+  return invoke<AnalyzeDocxResult>("analyze_docx", { payload });
 }

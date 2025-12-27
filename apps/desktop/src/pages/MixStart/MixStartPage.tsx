@@ -1,6 +1,8 @@
 // src/pages/MixStart/MixStartPage.tsx
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { LoadingOverlay } from "../../components/LoadingOverlay";
+import { analyzeDocx } from "../../services/tauri/analyzeDocx";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -12,27 +14,71 @@ import {
 export function MixStartPage() {
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [sourcePath, setSourcePath] = useState<string | null>(null);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     setHasFile(!!file);
+    // Trong Tauri, nên dùng dialog API để lấy đường dẫn tuyệt đối.
+    // Trường hợp input file được dùng trong môi trường web thuần, ta không thể lấy absolute path.
+    setSourcePath(null);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handlePickFile = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "DOCX", extensions: ["docx"] }],
+      });
+
+      if (typeof selected === "string") {
+        setSourcePath(selected);
+        setHasFile(true);
+        return;
+      }
+
+      // User bấm Hủy: không làm gì, coi như chưa chọn file
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "Unknown error");
+      setErrorMessage(message);
+      setIsErrorModalOpen(true);
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!hasFile) {
+      setErrorMessage("Vui lòng chọn file .docx trước khi tiếp tục.");
+      setIsErrorModalOpen(true);
+      return;
+    }
+
+    if (!sourcePath) {
+      setErrorMessage("Không lấy được đường dẫn file nguồn từ input.");
       setIsErrorModalOpen(true);
       return;
     }
 
     setIsAnalyzing(true);
-    // Demo: giả lập quá trình phân tích đề trong 800ms
-    setTimeout(() => {
+
+    try {
+      const jobId = crypto.randomUUID();
+      const result = await analyzeDocx({ jobId, sourcePath });
+      // Demo: tạm thời chỉ log ra console
+      // eslint-disable-next-line no-console
+      console.log("analyze_docx result", result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "Unknown error");
+      setErrorMessage(message);
+      setIsErrorModalOpen(true);
+    } finally {
       setIsAnalyzing(false);
-      // TODO: xử lý trộn đề ở bước tiếp theo
-    }, 800);
+    }
   };
 
   return (
@@ -151,7 +197,13 @@ export function MixStartPage() {
                             Chưa có file nào được chọn.
                           </p>
 
-                          <label className="mt-5 inline-flex cursor-pointer items-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-200 hover:bg-violet-700">
+                          <label
+                            className="mt-5 inline-flex cursor-pointer items-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-200 hover:bg-violet-700"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              void handlePickFile();
+                            }}
+                          >
                             Chọn file
                             <input
                               type="file"
@@ -199,10 +251,10 @@ export function MixStartPage() {
                   id="missing-file-title"
                   className="text-lg font-semibold text-slate-900"
                 >
-                  Lỗi: Chưa chọn file
+                  Lỗi
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  Vui lòng chọn file .docx trước khi tiếp tục.
+                  {errorMessage ?? "Đã xảy ra lỗi không xác định."}
                 </p>
 
                 <div className="mt-5 flex justify-end">

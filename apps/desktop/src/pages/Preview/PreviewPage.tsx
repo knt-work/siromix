@@ -1,7 +1,7 @@
 import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
 type Segment =
   | { type: "Text"; text: string }
@@ -64,12 +64,13 @@ export const PreviewPage: FC = () => {
         return <span key={key}>{segment.text}</span>;
       case "Image":
         return (
-          <span
+          <img
             key={key}
-            className="inline-block rounded bg-slate-200 px-1 text-xs text-slate-600"
-          >
-            [Ảnh]
-          </span>
+            src={convertFileSrc(segment.asset_path)}
+            alt="Ảnh câu hỏi"
+            className="my-2 max-w-full rounded-md border border-slate-200 bg-white object-contain"
+            style={{ height: "auto" }}
+          />
         );
       case "Math":
         return (

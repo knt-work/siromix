@@ -4,6 +4,7 @@ pub mod read;
 pub mod assets;
 pub mod model;
 pub mod parser;
+pub mod validator;
 
 #[derive(Debug)]
 pub enum AppError {

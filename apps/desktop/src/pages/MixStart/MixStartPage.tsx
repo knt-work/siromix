@@ -198,13 +198,13 @@ export function MixStartPage() {
                 </p>
 
                 <div className="mt-5 flex justify-end">
-                  <button
+                    <button
                     type="button"
-                    className="rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-300"
+                    className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
                     onClick={() => setIsErrorModalOpen(false)}
-                  >
+                    >
                     Đóng
-                  </button>
+                    </button>
                 </div>
               </div>
             </div>

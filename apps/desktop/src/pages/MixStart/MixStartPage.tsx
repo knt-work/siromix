@@ -1,4 +1,5 @@
 // src/pages/MixStart/MixStartPage.tsx
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -8,6 +9,25 @@ import {
 } from "@heroicons/react/24/outline";
 
 export function MixStartPage() {
+  const [hasFile, setHasFile] = useState(false);
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setHasFile(!!file);
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!hasFile) {
+      setIsErrorModalOpen(true);
+      return;
+    }
+
+    // TODO: xử lý trộn đề ở bước tiếp theo
+  };
+
   return (
     <div className="min-h-screen">
       {/* Background giống design: xanh + sọc chéo */}
@@ -28,7 +48,7 @@ export function MixStartPage() {
           </header>
 
           {/* Main */}
-          <main className="mx-auto flex min-h-[calc(100vh-64px)] max-w-5xl items-center justify-center px-6 py-10">
+          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-5xl items-center justify-center px-6 py-10">
             <div className="w-full max-w-4xl">
               {/* Card */}
               <div className="rounded-[28px] border border-slate-200/60 bg-white/90 shadow-2xl shadow-slate-900/10 backdrop-blur">
@@ -37,10 +57,10 @@ export function MixStartPage() {
                     Trộn đề trong vài giây
                   </h1>
                   <p className="mt-3 text-base text-slate-600">
-                    Nhập thông tin cơ bản, chọn file .docx theo template và bấm Trộn ngay.
+                    Nhập thông tin cơ bản, chọn file .docx theo template và bấm Tiếp theo.
                   </p>
 
-                  <form className="mt-10 space-y-7">
+                  <form className="mt-10 space-y-7" onSubmit={handleSubmit}>
                     {/* Row 1: Tên kì thi + Môn thi */}
                     <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                       <div>
@@ -126,7 +146,12 @@ export function MixStartPage() {
 
                           <label className="mt-5 inline-flex cursor-pointer items-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-violet-200 hover:bg-violet-700">
                             Chọn file
-                            <input type="file" accept=".docx" className="hidden" />
+                            <input
+                              type="file"
+                              accept=".docx"
+                              className="hidden"
+                              onChange={handleFileChange}
+                            />
                           </label>
                         </div>
                       </div>
@@ -142,7 +167,7 @@ export function MixStartPage() {
                         type="submit"
                         className="w-full rounded-full bg-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
                       >
-                        Trộn ngay
+                        Tiếp theo
                       </button>
 
                       <p className="mt-4 text-center text-xs text-slate-500">
@@ -154,6 +179,36 @@ export function MixStartPage() {
               </div>
             </div>
           </main>
+          {isErrorModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+              <div
+                className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="missing-file-title"
+              >
+                <h2
+                  id="missing-file-title"
+                  className="text-lg font-semibold text-slate-900"
+                >
+                  Lỗi: Chưa chọn file
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Vui lòng chọn file .docx trước khi tiếp tục.
+                </p>
+
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-300"
+                    onClick={() => setIsErrorModalOpen(false)}
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

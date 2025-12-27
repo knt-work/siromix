@@ -6,6 +6,7 @@ pub mod model;
 pub mod parser;
 pub mod validator;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AppError {
     Io(std::io::Error),
@@ -31,6 +32,7 @@ impl From<std::string::FromUtf8Error> for AppError {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ExtractedAsset {
     pub file_name: String,

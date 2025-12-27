@@ -147,6 +147,86 @@ pub fn parse_paragraphs(paragraphs: &[String]) -> ParsedDoc {
     ParsedDoc { questions }
 }
 
+/// Very lightweight XML walker that extracts plain paragraph texts from
+/// `word/document.xml` by concatenating all `<w:t>` contents inside each
+/// `<w:p>`. This is text-only and ignores styling, math and images. It is
+/// mainly a bridge to reuse the regex-based `parse_paragraphs` on real
+/// DOCX XML.
+pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
+    let paragraphs = extract_plain_paragraph_texts(document_xml);
+    parse_paragraphs(&paragraphs)
+}
+
+fn extract_plain_paragraph_texts(xml: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut cursor = 0;
+
+    loop {
+        let start_rel = match xml[cursor..].find("<w:p") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+
+        let end_rel = match xml[start..].find("</w:p>") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let end = start + end_rel + "</w:p>".len();
+
+        let block = &xml[start..end];
+        let text = extract_text_from_w_p(block);
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            result.push(trimmed.to_string());
+        }
+
+        cursor = end;
+    }
+
+    result
+}
+
+fn extract_text_from_w_p(block: &str) -> String {
+    let mut result = String::new();
+    let mut cursor = 0;
+
+    loop {
+        let start_rel = match block[cursor..].find("<w:t") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+
+        let gt_rel = match block[start..].find('>') {
+            Some(idx) => idx,
+            None => break,
+        };
+        let content_start = start + gt_rel + 1;
+
+        let end_tag_rel = match block[content_start..].find("</w:t>") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let content_end = content_start + end_tag_rel;
+
+        let fragment = &block[content_start..content_end];
+        let fragment = fragment
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&");
+
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(&fragment);
+
+        cursor = content_end + "</w:t>".len();
+    }
+
+    result
+}
+
 /// Inline piece inside a paragraph before being converted to high-level
 /// `Segment`s. This is intended to be produced by the lower-level DOCX
 /// XML walker:
@@ -156,6 +236,7 @@ pub fn parse_paragraphs(paragraphs: &[String]) -> ParsedDoc {
 /// - Image pieces correspond to inline images (`wp:inline` inside
 ///   `w:drawing`). Asset mapping is resolved by `build_segments_from_pieces`
 ///   using the global order of appearance.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum InlinePiece {
     Text(String),
@@ -174,6 +255,7 @@ pub enum InlinePiece {
 ///   (if available) and the cursor is incremented.
 /// - If there are more images than assets, remaining images will
 ///   still produce `Segment::Image` with an empty `asset_path`.
+#[allow(dead_code)]
 pub fn build_segments_from_pieces(
     pieces: &[InlinePiece],
     assets: &[ExtractedAsset],

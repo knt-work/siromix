@@ -5,10 +5,15 @@ export type AnalyzeDocxPayload = {
   sourcePath: string;
 };
 
+export type AnalyzeDocxError = {
+  code: string;
+  questionNumber: number;
+};
+
 export type AnalyzeDocxResult = {
   ok: boolean;
   jobId: string;
-  workspacePath: string;
+  errors?: AnalyzeDocxError[];
 };
 
 export async function analyzeDocx(

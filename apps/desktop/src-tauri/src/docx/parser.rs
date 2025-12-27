@@ -1,6 +1,8 @@
 use regex::Regex;
+use std::collections::HashMap;
 
 use crate::docx::model::{OptionItem, ParsedDoc, Question, Segment};
+use crate::docx::validator::{LabelRunStyle, LabeledOptionRuns};
 use crate::docx::ExtractedAsset;
 
 /// Parse a list of paragraph texts (already extracted from the DOCX)
@@ -222,6 +224,175 @@ fn extract_text_from_w_p(block: &str) -> String {
         result.push_str(&fragment);
 
         cursor = content_end + "</w:t>".len();
+    }
+
+    result
+}
+
+#[derive(Debug, Clone)]
+struct RunInfo {
+    text: String,
+    underline: bool,
+    color: Option<String>,
+}
+
+fn extract_runs_from_w_p(block: &str) -> Vec<RunInfo> {
+    let mut runs = Vec::new();
+    let mut cursor = 0;
+
+    let underline_re = Regex::new(r"<w:u\b[^>]*>").unwrap();
+    let color_re = Regex::new(r#"<w:color[^>]*w:val=\"([^\"]+)\""#).unwrap();
+
+    loop {
+        let start_rel = match block[cursor..].find("<w:r") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+
+        let end_rel = match block[start..].find("</w:r>") {
+            Some(idx) => idx + "</w:r>".len(),
+            None => break,
+        };
+        let end = start + end_rel;
+
+        let r_block = &block[start..end];
+
+        let text = extract_text_from_w_p(r_block).trim().to_string();
+        if text.is_empty() {
+            cursor = end;
+            continue;
+        }
+
+        let underline = underline_re
+            .find_iter(r_block)
+            .any(|m| {
+                let tag = &r_block[m.start()..m.end()];
+                !(tag.contains("w:val=\"none\"") || tag.contains("w:val='none'"))
+            });
+
+        let color = color_re
+            .captures(r_block)
+            .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()));
+
+        runs.push(RunInfo {
+            text,
+            underline,
+            color,
+        });
+
+        cursor = end;
+    }
+
+    runs
+}
+
+/// Scan `document.xml` and collect styled label runs for each question
+/// based on the same text patterns used by `parse_paragraphs`.
+///
+/// For each question number, returns a vector of `LabeledOptionRuns` whose
+/// `runs` contain the underline/color information for the option label
+/// (e.g. the run whose text is exactly "A." or "#A.").
+pub fn collect_labeled_option_runs(document_xml: &str) -> HashMap<u32, Vec<LabeledOptionRuns>> {
+    let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
+    let option_label_re = Regex::new(r"^(?P<label>#?[A-F])\.").unwrap();
+
+    let mut result: HashMap<u32, Vec<LabeledOptionRuns>> = HashMap::new();
+
+    let mut cursor = 0;
+    let mut current_question: Option<u32> = None;
+
+    loop {
+        let start_rel = match document_xml[cursor..].find("<w:p") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+
+        let end_rel = match document_xml[start..].find("</w:p>") {
+            Some(idx) => idx + "</w:p>".len(),
+            None => break,
+        };
+        let end = start + end_rel;
+
+        let block = &document_xml[start..end];
+        let text = extract_text_from_w_p(block);
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            cursor = end;
+            continue;
+        }
+
+        // Detect question start
+        if let Some(caps) = question_re.captures(trimmed) {
+            let number: u32 = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            current_question = Some(number);
+            cursor = end;
+            continue;
+        }
+
+        let q_number = match current_question {
+            Some(n) => n,
+            None => {
+                cursor = end;
+                continue;
+            }
+        };
+
+        // For this paragraph, inspect each run and collect those whose
+        // text looks like a label (e.g. "A." or "#A.").
+        let run_infos = extract_runs_from_w_p(block);
+        if run_infos.is_empty() {
+            cursor = end;
+            continue;
+        }
+
+        let entry = result.entry(q_number).or_insert_with(Vec::new);
+
+        for run in run_infos {
+            let candidate = run.text.trim();
+            if candidate.is_empty() {
+                continue;
+            }
+
+            if let Some(caps) = option_label_re.captures(candidate) {
+                let raw_label = caps
+                    .name("label")
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
+
+                let label = if raw_label.starts_with('#') {
+                    raw_label[1..].to_string()
+                } else {
+                    raw_label.clone()
+                };
+
+                if label.is_empty() {
+                    continue;
+                }
+
+                // Find or create entry for this label
+                if let Some(existing) = entry.iter_mut().find(|o| o.label == label) {
+                    existing.runs.push(LabelRunStyle {
+                        underline: run.underline,
+                        color: run.color.clone(),
+                    });
+                } else {
+                    entry.push(LabeledOptionRuns {
+                        label: label.clone(),
+                        runs: vec![LabelRunStyle {
+                            underline: run.underline,
+                            color: run.color.clone(),
+                        }],
+                    });
+                }
+            }
+        }
+
+        cursor = end;
     }
 
     result

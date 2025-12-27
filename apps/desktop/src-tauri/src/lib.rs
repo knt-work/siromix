@@ -45,7 +45,7 @@ fn analyze_docx(
     use crate::storage::{fs, paths};
 
     use crate::docx::{assets, parser, read};
-    use crate::docx::validator::{self, LabelRunStyle, LabeledOptionRuns};
+    use crate::docx::validator;
 
     let workspace_dir =
         paths::job_workspace_dir(&app_handle, &payload.job_id)?;
@@ -71,34 +71,33 @@ fn analyze_docx(
     // xử lý chi tiết ở bước parser XML sau).
     let mut parsed_doc = parser::parse_document_xml_to_parsed_doc(&document_xml);
 
-    // 4) Validation: enforce mỗi câu đúng 1 đáp án đúng.
+    // 4) Validation: enforce mỗi câu đúng 1 đáp án đúng, dựa trên
+    // underline/màu đỏ ở phần label trong document.xml.
+    let labeled_option_runs_by_question =
+        parser::collect_labeled_option_runs(&document_xml);
     let mut errors = Vec::new();
 
     for q in &mut parsed_doc.questions {
-        let option_runs: Vec<LabeledOptionRuns> = q
-            .options
-            .iter()
-            .map(|opt| LabeledOptionRuns {
-                label: opt.label.clone(),
-                // Tạm thời map `locked` sang underline, sẽ được thay bằng
-                // styling thật (underline/red) khi parser XML đầy đủ.
-                runs: vec![LabelRunStyle {
-                    underline: opt.locked,
-                    color: None,
-                }],
-            })
-            .collect();
-
-        match validator::detect_correct_label_for_question(q.number, &option_runs) {
-            Ok(label) => {
-                q.correct_label = label;
+        if let Some(option_runs) = labeled_option_runs_by_question.get(&q.number) {
+            match validator::detect_correct_label_for_question(q.number, option_runs) {
+                Ok(label) => {
+                    q.correct_label = label;
+                }
+                Err(err) => {
+                    errors.push(AnalyzeDocxError {
+                        code: err.code.as_str().to_string(),
+                        question_number: err.question_number,
+                    });
+                }
             }
-            Err(err) => {
-                errors.push(AnalyzeDocxError {
-                    code: err.code.as_str().to_string(),
-                    question_number: err.question_number,
-                });
-            }
+        } else {
+            // Không tìm thấy bất kỳ label được style cho câu này.
+            errors.push(AnalyzeDocxError {
+                code: validator::ValidationErrorCode::E020CorrectMarkMissing
+                    .as_str()
+                    .to_string(),
+                question_number: q.number,
+            });
         }
     }
 

@@ -2,6 +2,8 @@ import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { MathBlock } from "../../lib/mathjax";
+import { ommlToMathml } from "../../lib/omml";
 
 type Segment =
   | { type: "Text"; text: string }
@@ -72,15 +74,19 @@ export const PreviewPage: FC = () => {
             style={{ height: "auto" }}
           />
         );
-      case "Math":
+      case "Math": {
+        const mathml = ommlToMathml(segment.omml);
+        if (!mathml) {
+          return null;
+        }
         return (
-          <span
+          <MathBlock
             key={key}
-            className="inline-block rounded bg-slate-200 px-1 text-xs text-slate-600"
-          >
-            [Công thức]
-          </span>
+            mathml={mathml}
+            className="my-2 inline-block align-middle"
+          />
         );
+      }
       default:
         return null;
     }

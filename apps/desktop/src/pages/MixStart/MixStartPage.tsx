@@ -1,6 +1,7 @@
 // src/pages/MixStart/MixStartPage.tsx
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useNavigate } from "react-router-dom";
 import { LoadingOverlay } from "../../components/LoadingOverlay";
 import { analyzeDocx } from "../../services/tauri/analyzeDocx";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 export function MixStartPage() {
+  const navigate = useNavigate();
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,13 +73,22 @@ export function MixStartPage() {
       // Demo: tạm thời chỉ log ra console
       // eslint-disable-next-line no-console
       console.log("analyze_docx result", result);
+
+      if (result.ok) {
+        setIsAnalyzing(false);
+        navigate(`/preview/${result.jobId}`);
+        return;
+      }
+
+      setIsAnalyzing(false);
+      setErrorMessage("Phân tích đề không thành công.");
+      setIsErrorModalOpen(true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : String(error ?? "Unknown error");
+      setIsAnalyzing(false);
       setErrorMessage(message);
       setIsErrorModalOpen(true);
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 

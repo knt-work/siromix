@@ -13,13 +13,19 @@ use crate::docx::ExtractedAsset;
 /// - Question starts with "Câu X." or "Question X."
 /// - Option starts with "A." / "B." / "C." / "D." / "E." / "F." (or "#A." for locked)
 /// - Continuation paragraphs are added to current question stem or option content
-pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
+pub fn parse_document_xml_to_parsed_doc(
+    document_xml: &str,
+    assets: &[ExtractedAsset],
+) -> ParsedDoc {
     let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
     let option_re = Regex::new(r"^(?P<label>#?[A-F])\.").unwrap();
 
     let mut questions: Vec<Question> = Vec::new();
     let mut current_question: Option<Question> = None;
     let mut cursor = 0;
+    // Global cursor for mapping images (both <w:drawing> and <w:object>)
+    // to extracted media assets by order of appearance.
+    let mut next_asset_index: usize = 0;
 
     // Walk through all <w:p> blocks
     loop {
@@ -36,9 +42,9 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
         let end = start + end_rel;
 
         let block = &document_xml[start..end];
-        
+
         // Extract segments (text, math, images) from this paragraph
-        let segments = extract_segments_from_paragraph(block);
+        let segments = extract_segments_from_paragraph(block, assets, &mut next_asset_index);
         if segments.is_empty() {
             cursor = end;
             continue;
@@ -144,8 +150,14 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
 /// Walks through the paragraph XML and creates appropriate Segment variants:
 /// - <w:t>text</w:t> → Segment::Text
 /// - <m:oMath>...</m:oMath> → Segment::Math (preserves full OMML for frontend)
-/// - <w:drawing>...</w:drawing> → Segment::Image (extracts rId, needs .rels mapping)
-fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
+/// - <w:drawing>...</w:drawing> or <w:object>...</w:object> → Segment::Image
+///   Images (including OLE Equation objects with VML/v:imagedata) are mapped
+///   to extracted media assets purely by global order of appearance.
+fn extract_segments_from_paragraph(
+    block: &str,
+    assets: &[ExtractedAsset],
+    next_asset_index: &mut usize,
+) -> Vec<Segment> {
     let mut segments = Vec::new();
     let mut cursor = 0;
     let mut pending_text = String::new();
@@ -162,45 +174,92 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
             (None, None) => None,
         };
         let next_math = block[cursor..].find("<m:oMath");
-        let next_image = block[cursor..].find("<w:drawing");
+        let next_drawing = block[cursor..].find("<w:drawing");
+        let next_object = block[cursor..].find("<w:object");
 
         // Find which comes first
-        let (element_type, offset) = match (next_text, next_math, next_image) {
-            (Some(t), None, None) => ("text", t),
-            (None, Some(m), None) => ("math", m),
-            (None, None, Some(i)) => ("image", i),
-            (Some(t), Some(m), None) => {
-                if t < m {
-                    ("text", t)
-                } else {
-                    ("math", m)
-                }
+        let (element_type, offset) = match (next_text, next_math, next_drawing, next_object) {
+            (Some(t), None, None, None) => ("text", t),
+            (None, Some(m), None, None) => ("math", m),
+            (None, None, Some(d), None) => ("drawing", d),
+            (None, None, None, Some(o)) => ("object", o),
+            (Some(t), Some(m), None, None) => {
+                let min_offset = t.min(m);
+                if min_offset == t { ("text", t) } else { ("math", m) }
             }
-            (Some(t), None, Some(i)) => {
-                if t < i {
-                    ("text", t)
-                } else {
-                    ("image", i)
-                }
+            (Some(t), None, Some(d), None) => {
+                let min_offset = t.min(d);
+                if min_offset == t { ("text", t) } else { ("drawing", d) }
             }
-            (None, Some(m), Some(i)) => {
-                if m < i {
-                    ("math", m)
-                } else {
-                    ("image", i)
-                }
+            (Some(t), None, None, Some(o)) => {
+                let min_offset = t.min(o);
+                if min_offset == t { ("text", t) } else { ("object", o) }
             }
-            (Some(t), Some(m), Some(i)) => {
-                let min_offset = t.min(m).min(i);
+            (None, Some(m), Some(d), None) => {
+                let min_offset = m.min(d);
+                if min_offset == m { ("math", m) } else { ("drawing", d) }
+            }
+            (None, Some(m), None, Some(o)) => {
+                let min_offset = m.min(o);
+                if min_offset == m { ("math", m) } else { ("object", o) }
+            }
+            (None, None, Some(d), Some(o)) => {
+                let min_offset = d.min(o);
+                if min_offset == d { ("drawing", d) } else { ("object", o) }
+            }
+            (Some(t), Some(m), Some(d), None) => {
+                let min_offset = t.min(m).min(d);
                 if min_offset == t {
                     ("text", t)
                 } else if min_offset == m {
                     ("math", m)
                 } else {
-                    ("image", i)
+                    ("drawing", d)
                 }
             }
-            (None, None, None) => break,
+            (Some(t), Some(m), None, Some(o)) => {
+                let min_offset = t.min(m).min(o);
+                if min_offset == t {
+                    ("text", t)
+                } else if min_offset == m {
+                    ("math", m)
+                } else {
+                    ("object", o)
+                }
+            }
+            (Some(t), None, Some(d), Some(o)) => {
+                let min_offset = t.min(d).min(o);
+                if min_offset == t {
+                    ("text", t)
+                } else if min_offset == d {
+                    ("drawing", d)
+                } else {
+                    ("object", o)
+                }
+            }
+            (None, Some(m), Some(d), Some(o)) => {
+                let min_offset = m.min(d).min(o);
+                if min_offset == m {
+                    ("math", m)
+                } else if min_offset == d {
+                    ("drawing", d)
+                } else {
+                    ("object", o)
+                }
+            }
+            (Some(t), Some(m), Some(d), Some(o)) => {
+                let min_offset = t.min(m).min(d).min(o);
+                if min_offset == t {
+                    ("text", t)
+                } else if min_offset == m {
+                    ("math", m)
+                } else if min_offset == d {
+                    ("drawing", d)
+                } else {
+                    ("object", o)
+                }
+            }
+            (None, None, None, None) => break,
         };
 
         let start = cursor + offset;
@@ -254,7 +313,7 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
                 segments.push(Segment::Math { omml });
                 cursor = end;
             }
-            "image" => {
+            "drawing" => {
                 // Flush pending text before adding image
                 if !pending_text.is_empty() {
                     let trimmed = pending_text.trim();
@@ -266,18 +325,61 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
                     pending_text.clear();
                 }
 
-                // Extract image reference from <w:drawing>...</w:drawing>
+                // Skip over full <w:drawing>...</w:drawing> block
                 let end_rel = match block[start..].find("</w:drawing>") {
                     Some(idx) => idx + "</w:drawing>".len(),
                     None => break,
                 };
                 let end = start + end_rel;
-                
-                // Extract rId from the drawing block (needs .rels mapping later)
-                if let Some(asset_path) = extract_image_path_from_drawing(&block[start..end]) {
+
+                // Map this drawing to the next extracted media asset (if any)
+                let asset_path = if *next_asset_index < assets.len() {
+                    let p = &assets[*next_asset_index].absolute_path;
+                    *next_asset_index += 1;
+                    p.to_string_lossy().to_string()
+                } else {
+                    String::new()
+                };
+
+                if !asset_path.is_empty() {
                     segments.push(Segment::Image { asset_path });
                 }
-                
+
+                cursor = end;
+            }
+            "object" => {
+                // Flush pending text before adding image (OLE Equation object)
+                if !pending_text.is_empty() {
+                    let trimmed = pending_text.trim();
+                    if !trimmed.is_empty() {
+                        segments.push(Segment::Text {
+                            text: trimmed.to_string(),
+                        });
+                    }
+                    pending_text.clear();
+                }
+
+                // Skip over full <w:object>...</w:object> block
+                let end_rel = match block[start..].find("</w:object>") {
+                    Some(idx) => idx + "</w:object>".len(),
+                    None => break,
+                };
+                let end = start + end_rel;
+
+                // Map this OLE object (which contains <v:imagedata>)
+                // to the next extracted media asset (Equation preview image).
+                let asset_path = if *next_asset_index < assets.len() {
+                    let p = &assets[*next_asset_index].absolute_path;
+                    *next_asset_index += 1;
+                    p.to_string_lossy().to_string()
+                } else {
+                    String::new()
+                };
+
+                if !asset_path.is_empty() {
+                    segments.push(Segment::Image { asset_path });
+                }
+
                 cursor = end;
             }
             _ => break,
@@ -295,17 +397,6 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
     }
 
     segments
-}
-
-/// Extract image asset path from a <w:drawing> block.
-/// 
-/// Looks for r:embed="rIdX" in <a:blip> element.
-/// TODO: Parse document.xml.rels to map rId → actual media file path.
-/// For now returns None (placeholder implementation).
-fn extract_image_path_from_drawing(_drawing_block: &str) -> Option<String> {
-    // TODO: Parse blip:embed rId, look up in document.xml.rels, map to media/imageN.ext
-    // For now, return None since we need the full extraction logic with rels parsing
-    None
 }
 
 /// Convert segments to plain text for regex pattern matching.

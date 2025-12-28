@@ -64,12 +64,15 @@ fn analyze_docx(
 
     // 2) Extract media into `<workspace>/assets/`
     let assets_dir = workspace_dir.join("assets");
-    let _extracted_assets = assets::extract_media(docx_path, &assets_dir)
+    let extracted_assets = assets::extract_media(docx_path, &assets_dir)
         .map_err(|e| format!("Không extract media từ docx: {:?}", e))?;
 
-    // 3) Parse -> ParsedDoc (hiện tại mới text-only; math/image sẽ được
-    // xử lý chi tiết ở bước parser XML sau).
-    let mut parsed_doc = parser::parse_document_xml_to_parsed_doc(&document_xml);
+    // 3) Parse -> ParsedDoc, đồng thời map các image (kể cả OLE Equation
+    // object) theo thứ tự xuất hiện sang danh sách media đã extract.
+    let mut parsed_doc = parser::parse_document_xml_to_parsed_doc(
+        &document_xml,
+        &extracted_assets,
+    );
 
     // 4) Validation: enforce mỗi câu đúng 1 đáp án đúng, dựa trên
     // underline/màu đỏ ở phần label trong document.xml.

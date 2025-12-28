@@ -70,7 +70,7 @@ export const PreviewPage: FC = () => {
         return (
           <img
             key={key}
-            src={convertFileSrc(segment.asset_path)}
+            src={convertFileSrc(segment.asset_path, "stream")}
             alt="Ảnh câu hỏi"
             className="my-2 max-w-full rounded-md border border-slate-200 bg-white object-contain"
             style={{ height: "auto" }}

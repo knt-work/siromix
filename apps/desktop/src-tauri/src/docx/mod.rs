@@ -37,4 +37,8 @@ impl From<std::string::FromUtf8Error> for AppError {
 pub struct ExtractedAsset {
     pub file_name: String,
     pub absolute_path: PathBuf,
+    /// If this was a WMF/EMF file that got converted to PNG,
+    /// this field contains the path to the converted PNG file.
+    /// Otherwise, it's None.
+    pub converted_path: Option<PathBuf>,
 }

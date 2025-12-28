@@ -1,9 +1,10 @@
 import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { MathBlock } from "../../lib/mathjax";
 import { ommlToMathml } from "../../lib/omml";
+import { ImageSegment } from "../../components/ImageSegment";
 
 type Segment =
   | { type: "Text"; text: string }
@@ -68,12 +69,10 @@ export const PreviewPage: FC = () => {
         return <span key={key}>{segment.text} </span>;
       case "Image":
         return (
-          <img
+          <ImageSegment
             key={key}
-            src={convertFileSrc(segment.asset_path, "stream")}
-            alt="Ảnh câu hỏi"
-            className="my-2 max-w-full rounded-md border border-slate-200 bg-white object-contain"
-            style={{ height: "auto" }}
+            assetPath={segment.asset_path}
+            className=""
           />
         );
       case "Math": {

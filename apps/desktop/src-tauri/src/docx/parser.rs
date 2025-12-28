@@ -334,9 +334,22 @@ fn extract_segments_from_paragraph(
 
                 // Map this drawing to the next extracted media asset (if any)
                 let asset_path = if *next_asset_index < assets.len() {
-                    let p = &assets[*next_asset_index].absolute_path;
+                    let asset = &assets[*next_asset_index];
                     *next_asset_index += 1;
-                    p.to_string_lossy().to_string()
+                    // Prefer converted PNG if available (for WMF/EMF files)
+                    let path = asset.converted_path
+                        .as_ref()
+                        .unwrap_or(&asset.absolute_path)
+                        .to_string_lossy()
+                        .to_string();
+                    
+                    // Debug log
+                    if asset.converted_path.is_some() {
+                        println!("[Parser] Using converted PNG: {} (was: {})", 
+                            path, asset.file_name);
+                    }
+                    
+                    path
                 } else {
                     String::new()
                 };
@@ -369,9 +382,22 @@ fn extract_segments_from_paragraph(
                 // Map this OLE object (which contains <v:imagedata>)
                 // to the next extracted media asset (Equation preview image).
                 let asset_path = if *next_asset_index < assets.len() {
-                    let p = &assets[*next_asset_index].absolute_path;
+                    let asset = &assets[*next_asset_index];
                     *next_asset_index += 1;
-                    p.to_string_lossy().to_string()
+                    // Prefer converted PNG if available (for WMF/EMF files)
+                    let path = asset.converted_path
+                        .as_ref()
+                        .unwrap_or(&asset.absolute_path)
+                        .to_string_lossy()
+                        .to_string();
+                    
+                    // Debug log
+                    if asset.converted_path.is_some() {
+                        println!("[Parser] Using converted PNG for OLE: {} (was: {})", 
+                            path, asset.file_name);
+                    }
+                    
+                    path
                 } else {
                     String::new()
                 };
@@ -745,9 +771,14 @@ pub fn build_segments_from_pieces(
             }
             InlinePiece::Image => {
                 let asset_path = if *next_asset_index < assets.len() {
-                    let p = &assets[*next_asset_index].absolute_path;
+                    let asset = &assets[*next_asset_index];
                     *next_asset_index += 1;
-                    p.to_string_lossy().to_string()
+                    // Prefer converted PNG if available (for WMF/EMF files)
+                    asset.converted_path
+                        .as_ref()
+                        .unwrap_or(&asset.absolute_path)
+                        .to_string_lossy()
+                        .to_string()
                 } else {
                     String::new()
                 };

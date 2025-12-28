@@ -44,6 +44,8 @@ export const PreviewPage: FC = () => {
     invoke<ParsedDoc>("get_parsed", { jobId })
       .then((doc) => {
         if (isCancelled) return;
+        console.log("Parsed doc:", doc);
+        console.log("Number of questions:", doc.questions?.length);
         setParsed(doc);
         setLoading(false);
       })
@@ -114,51 +116,59 @@ export const PreviewPage: FC = () => {
 
         {!loading && !error && parsed && (
           <div className="mt-8 space-y-6">
-            {parsed.questions.map((q) => (
-              <div
-                key={q.number}
-                className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
-              >
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 text-sm font-semibold text-slate-700">
-                    Câu {q.number}.
+            {parsed.questions && parsed.questions.length > 0 ? (
+              parsed.questions.map((q) => (
+                <div
+                  key={q.number}
+                  className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="mt-1 text-sm font-semibold text-slate-700">
+                      Câu {q.number}.
+                    </div>
+                    <div className="flex-1 text-sm text-slate-800">
+                      {q.stem.map((seg, idx) => renderSegment(seg, idx))}
+                    </div>
                   </div>
-                  <div className="flex-1 text-sm text-slate-800">
-                    {q.stem.map((seg, idx) => renderSegment(seg, idx))}
-                  </div>
-                </div>
 
-                <div className="mt-3 space-y-1.5 text-sm">
-                  {q.options.map((opt) => {
-                    const isCorrect =
-                      q.correct_label && opt.label === q.correct_label;
-                    return (
-                      <div
-                        key={opt.label}
-                        className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
-                          isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
-                        }`}
-                      >
-                        <div className="mt-0.5 w-6 shrink-0 text-slate-700">
-                          {opt.label}.
+                  <div className="mt-3 space-y-1.5 text-sm">
+                    {q.options.map((opt) => {
+                      const isCorrect =
+                        q.correct_label && opt.label === q.correct_label;
+                      return (
+                        <div
+                          key={opt.label}
+                          className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
+                            isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
+                          }`}
+                        >
+                          <div className="mt-0.5 w-6 shrink-0 text-slate-700">
+                            {opt.label}.
+                          </div>
+                          <div className="flex-1 text-slate-800">
+                            {opt.content.length === 0 ? (
+                              <span className="italic text-slate-400">
+                                (Trống)
+                              </span>
+                            ) : (
+                              opt.content.map((seg, idx) =>
+                                renderSegment(seg, idx),
+                              )
+                            )}
+                          </div>
                         </div>
-                        <div className="flex-1 text-slate-800">
-                          {opt.content.length === 0 ? (
-                            <span className="italic text-slate-400">
-                              (Trống)
-                            </span>
-                          ) : (
-                            opt.content.map((seg, idx) =>
-                              renderSegment(seg, idx),
-                            )
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <p className="text-sm text-slate-600">
+                  Không tìm thấy câu hỏi nào trong file. Parsed doc: {JSON.stringify(parsed)}
+                </p>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

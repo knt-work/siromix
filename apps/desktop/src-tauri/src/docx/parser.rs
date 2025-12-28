@@ -5,33 +5,73 @@ use crate::docx::model::{OptionItem, ParsedDoc, Question, Segment};
 use crate::docx::validator::{LabelRunStyle, LabeledOptionRuns};
 use crate::docx::ExtractedAsset;
 
-/// Parse a list of paragraph texts (already extracted from the DOCX)
-/// into a `ParsedDoc` following the trắc nghiệm rules.
+/// Parse document.xml into ParsedDoc by extracting segments (text, math, images)
+/// from each paragraph while preserving question/option structure.
 ///
-/// - Question start: /^(Câu|Question)\s+(\d+)\./
-/// - Options: labels A..F or #A..#F followed by a dot, possibly
-///   multiple options in a single paragraph (e.g. "A. ...\tB. ...").
-/// - Locked option: label prefixed with '#', e.g. "#A.".
-/// - Everything is represented as `Segment::Text` for now.
-pub fn parse_paragraphs(paragraphs: &[String]) -> ParsedDoc {
-    // Question start: "Câu 1." or "Question 1."
+/// Rules:
+/// - Each paragraph has ONE role: new question, new option, or continuation
+/// - Question starts with "Câu X." or "Question X."
+/// - Option starts with "A." / "B." / "C." / "D." / "E." / "F." (or "#A." for locked)
+/// - Continuation paragraphs are added to current question stem or option content
+pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
     let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
-    let option_re = Regex::new(r"(?P<label>#?[A-F])\.").unwrap();
+    let option_re = Regex::new(r"^(?P<label>#?[A-F])\.").unwrap();
 
     let mut questions: Vec<Question> = Vec::new();
     let mut current_question: Option<Question> = None;
+    let mut cursor = 0;
+    let mut paragraph_count = 0;
 
-    for raw_p in paragraphs {
-        let p = raw_p.trim();
-        if p.is_empty() {
+    // Walk through all <w:p> blocks
+    loop {
+        let start_rel = match document_xml[cursor..].find("<w:p") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+
+        let end_rel = match document_xml[start..].find("</w:p>") {
+            Some(idx) => idx + "</w:p>".len(),
+            None => break,
+        };
+        let end = start + end_rel;
+
+        let block = &document_xml[start..end];
+        paragraph_count += 1;
+        
+        if paragraph_count == 2 {
+            println!("\n=== FULL RAW BLOCK 2 ===\n{}\n=== END ===\n", block);
+        }
+        
+        // Extract segments (text, math, images) from this paragraph
+        let segments = extract_segments_from_paragraph(block);
+        if segments.is_empty() {
+            cursor = end;
             continue;
         }
 
-        // 1. Detect question start
-        if let Some(caps) = question_re.captures(p) {
-            // Close previous question if any
+        // Get plain text for pattern matching
+        let plain_text = segments_to_plain_text(&segments);
+        let trimmed = plain_text.trim();
+        
+        if paragraph_count <= 5 {
+            println!("Paragraph {}: segments count={}, plain_text='{}'", 
+                paragraph_count, segments.len(), trimmed);
+            if segments.len() > 0 && segments.len() <= 3 {
+                for (i, seg) in segments.iter().enumerate() {
+                    match seg {
+                        Segment::Text { text } => println!("  Segment {}: Text({})", i, text),
+                        Segment::Math { omml } => println!("  Segment {}: Math({}...)", i, &omml[..omml.len().min(50)]),
+                        Segment::Image { asset_path } => println!("  Segment {}: Image({})", i, asset_path),
+                    }
+                }
+            }
+        }
+
+        // Case 1: New question paragraph (starts with "Câu X." or "Question X.")
+        if let Some(caps) = question_re.captures(trimmed) {
+            // Save previous question if any
             if let Some(q) = current_question.take() {
-                // Only keep questions that have at least one option
                 if !q.options.is_empty() {
                     questions.push(q);
                 }
@@ -42,153 +82,365 @@ pub fn parse_paragraphs(paragraphs: &[String]) -> ParsedDoc {
                 .and_then(|m| m.as_str().parse().ok())
                 .unwrap_or(0);
 
-            // Remove the matched prefix from the text to get the stem text
-            let end = caps.get(0).unwrap().end();
-            let stem_text = p[end..].trim();
-
-            let mut stem_segments = Vec::new();
-            if !stem_text.is_empty() {
-                stem_segments.push(Segment::Text {
-                    text: stem_text.to_string(),
-                });
-            }
+            // Remove question prefix ("Câu 1. ") from segments to get stem content
+            let prefix_end = caps.get(0).unwrap().end();
+            let stem_segments = trim_prefix_from_segments(&segments, prefix_end);
 
             current_question = Some(Question {
                 number,
                 stem: stem_segments,
                 options: Vec::new(),
-                // Temporary: will be filled from locked or first option label if needed later
                 correct_label: String::new(),
             });
 
+            cursor = end;
             continue;
         }
 
-        // 2. If this paragraph is not a question start, check if it belongs
-        //    to the current question as options or stem continuation.
-        if let Some(ref mut q) = current_question {
-            // Find all option labels in this paragraph
-            let matches_vec: Vec<(usize, usize, String)> = option_re
-                .captures_iter(p)
-                .filter_map(|caps| {
-                    let m = caps.get(0)?;
-                    let label = caps
-                        .name("label")
-                        .map(|l| l.as_str().to_string())?;
-                    Some((m.start(), m.end(), label))
-                })
-                .collect();
+        // Case 2: New option paragraph (starts with "A." / "B." / etc.)
+        if let Some(caps) = option_re.captures(trimmed) {
+            if let Some(ref mut q) = current_question {
+                let raw_label = caps
+                    .name("label")
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
 
-            if matches_vec.is_empty() {
-                // No options found: treat as stem continuation (text only)
-                q.stem.push(Segment::Text {
-                    text: p.to_string(),
-                });
-                continue;
-            }
-
-            // There are one or more options in this paragraph.
-            // Split the paragraph into segments per option.
-            // Example: "A. Foo\tB. Bar" -> [A => "Foo", B => "Bar"]
-            let mut local_options: Vec<OptionItem> = Vec::new();
-            let para_len = p.len();
-
-            let mut idx = 0;
-            while idx < matches_vec.len() {
-                let (_start, end, raw_label) = &matches_vec[idx];
                 let is_locked = raw_label.starts_with('#');
                 let label = if is_locked {
                     raw_label[1..].to_string()
                 } else {
-                    raw_label.clone()
+                    raw_label
                 };
 
-                let content_start = *end;
-                let content_end = if idx + 1 < matches_vec.len() {
-                    matches_vec[idx + 1].0
-                } else {
-                    para_len
-                };
+                // Remove option prefix ("A. ") from segments to get content
+                let prefix_end = caps.get(0).unwrap().end();
+                let content_segments = trim_prefix_from_segments(&segments, prefix_end);
 
-                let raw_content = p[content_start..content_end].trim();
-
-                let content_segments = if raw_content.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![Segment::Text {
-                        text: raw_content.to_string(),
-                    }]
-                };
-
-                local_options.push(OptionItem {
+                q.options.push(OptionItem {
                     label: label.clone(),
                     locked: is_locked,
                     content: content_segments,
                 });
 
-                // If there is a locked option and the question has no
-                // correct_label yet, fill it.
+                // If this is a locked option (e.g., "#A."), set as correct answer
                 if is_locked && q.correct_label.is_empty() {
-                    q.correct_label = label.clone();
+                    q.correct_label = label;
                 }
-
-                idx += 1;
             }
 
-            q.options.extend(local_options);
+            cursor = end;
+            continue;
         }
+
+        // Case 3: Continuation paragraph (no question/option prefix)
+        // Add to current question stem or current option content
+        if let Some(ref mut q) = current_question {
+            if q.options.is_empty() {
+                // No options yet: add to stem
+                q.stem.extend(segments);
+            } else {
+                // Has options: add to last option's content
+                if let Some(last_option) = q.options.last_mut() {
+                    last_option.content.extend(segments);
+                }
+            }
+        }
+
+        cursor = end;
     }
 
-    // Push the last question if valid
+    // Push last question if valid
     if let Some(q) = current_question {
         if !q.options.is_empty() {
             questions.push(q);
         }
     }
 
+    println!("Total paragraphs processed: {}", paragraph_count);
+    println!("Total questions found: {}", questions.len());
+
     ParsedDoc { questions }
 }
 
-/// Very lightweight XML walker that extracts plain paragraph texts from
-/// `word/document.xml` by concatenating all `<w:t>` contents inside each
-/// `<w:p>`. This is text-only and ignores styling, math and images. It is
-/// mainly a bridge to reuse the regex-based `parse_paragraphs` on real
-/// DOCX XML.
-pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
-    let paragraphs = extract_plain_paragraph_texts(document_xml);
-    parse_paragraphs(&paragraphs)
-}
-
-fn extract_plain_paragraph_texts(xml: &str) -> Vec<String> {
-    let mut result = Vec::new();
+/// Extract segments (Text, Math, Image) from a single <w:p> block preserving order.
+///
+/// Walks through the paragraph XML and creates appropriate Segment variants:
+/// - <w:t>text</w:t> → Segment::Text
+/// - <m:oMath>...</m:oMath> → Segment::Math (preserves full OMML for frontend)
+/// - <w:drawing>...</w:drawing> → Segment::Image (extracts rId, needs .rels mapping)
+fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
+    let mut segments = Vec::new();
     let mut cursor = 0;
+    let mut pending_text = String::new();
+    
+    let debug = block.contains("A. Số 2 là số nguyên") || block.contains("A. </w:t>");
+    
+    if debug {
+        println!("\n>>> extract_segments_from_paragraph called");
+        println!(">>> Block length: {}", block.len());
+        println!(">>> Block preview: {}...", &block[..block.len().min(300)]);
+    }
 
     loop {
-        let start_rel = match xml[cursor..].find("<w:p") {
-            Some(idx) => idx,
-            None => break,
+        // Look for next interesting element: <w:t>, <m:oMath>, or <w:drawing>
+        // Note: Must search for "<w:t>" or "<w:t " to avoid matching "<w:tab"
+        let next_text_space = block[cursor..].find("<w:t ");
+        let next_text_gt = block[cursor..].find("<w:t>");
+        let next_text = match (next_text_space, next_text_gt) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
         };
-        let start = cursor + start_rel;
-
-        let end_rel = match xml[start..].find("</w:p>") {
-            Some(idx) => idx,
-            None => break,
-        };
-        let end = start + end_rel + "</w:p>".len();
-
-        let block = &xml[start..end];
-        let text = extract_text_from_w_p(block);
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            result.push(trimmed.to_string());
+        let next_math = block[cursor..].find("<m:oMath");
+        let next_image = block[cursor..].find("<w:drawing");
+        
+        if debug {
+            println!(">>> Loop iteration: cursor={}, next_text={:?}, next_math={:?}, next_image={:?}", 
+                cursor, next_text, next_math, next_image);
         }
 
-        cursor = end;
+        // Find which comes first
+        let (element_type, offset) = match (next_text, next_math, next_image) {
+            (Some(t), None, None) => ("text", t),
+            (None, Some(m), None) => ("math", m),
+            (None, None, Some(i)) => ("image", i),
+            (Some(t), Some(m), None) => {
+                if t < m {
+                    ("text", t)
+                } else {
+                    ("math", m)
+                }
+            }
+            (Some(t), None, Some(i)) => {
+                if t < i {
+                    ("text", t)
+                } else {
+                    ("image", i)
+                }
+            }
+            (None, Some(m), Some(i)) => {
+                if m < i {
+                    ("math", m)
+                } else {
+                    ("image", i)
+                }
+            }
+            (Some(t), Some(m), Some(i)) => {
+                let min_offset = t.min(m).min(i);
+                if min_offset == t {
+                    ("text", t)
+                } else if min_offset == m {
+                    ("math", m)
+                } else {
+                    ("image", i)
+                }
+            }
+            (None, None, None) => break,
+        };
+
+        let start = cursor + offset;
+
+        match element_type {
+            "text" => {
+                // Extract text content from <w:t>text</w:t>
+                let gt_rel = match block[start..].find('>') {
+                    Some(idx) => idx,
+                    None => break,
+                };
+                let content_start = start + gt_rel + 1;
+
+                let end_tag_rel = match block[content_start..].find("</w:t>") {
+                    Some(idx) => idx,
+                    None => break,
+                };
+                let content_end = content_start + end_tag_rel;
+
+                let fragment = &block[content_start..content_end];
+                
+                if debug {
+                    println!("DEBUG: Extracted fragment from {}..{}: '{}'", content_start, content_end, fragment);
+                }
+                
+                // Decode XML entities
+                let fragment = fragment
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&");
+
+                pending_text.push_str(&fragment);
+                cursor = content_end + "</w:t>".len();
+            }
+            "math" => {
+                // Flush pending text before adding math
+                if !pending_text.is_empty() {
+                    let trimmed = pending_text.trim();
+                    if !trimmed.is_empty() {
+                        segments.push(Segment::Text {
+                            text: trimmed.to_string(),
+                        });
+                    }
+                    pending_text.clear();
+                }
+
+                // Extract full <m:oMath>...</m:oMath> block (preserve OMML)
+                let end_rel = match block[start..].find("</m:oMath>") {
+                    Some(idx) => idx + "</m:oMath>".len(),
+                    None => break,
+                };
+                let end = start + end_rel;
+                let omml = block[start..end].to_string();
+
+                segments.push(Segment::Math { omml });
+                cursor = end;
+            }
+            "image" => {
+                // Flush pending text before adding image
+                if !pending_text.is_empty() {
+                    let trimmed = pending_text.trim();
+                    if !trimmed.is_empty() {
+                        segments.push(Segment::Text {
+                            text: trimmed.to_string(),
+                        });
+                    }
+                    pending_text.clear();
+                }
+
+                // Extract image reference from <w:drawing>...</w:drawing>
+                let end_rel = match block[start..].find("</w:drawing>") {
+                    Some(idx) => idx + "</w:drawing>".len(),
+                    None => break,
+                };
+                let end = start + end_rel;
+                
+                // Extract rId from the drawing block (needs .rels mapping later)
+                if let Some(asset_path) = extract_image_path_from_drawing(&block[start..end]) {
+                    segments.push(Segment::Image { asset_path });
+                }
+                
+                cursor = end;
+            }
+            _ => break,
+        }
+    }
+
+    // Flush remaining text
+    if !pending_text.is_empty() {
+        let trimmed = pending_text.trim();
+        if !trimmed.is_empty() {
+            segments.push(Segment::Text {
+                text: trimmed.to_string(),
+            });
+        }
+    }
+    
+    if debug {
+        println!(">>> extract_segments_from_paragraph returning {} segments", segments.len());
+        for (i, seg) in segments.iter().enumerate() {
+            match seg {
+                Segment::Text { text } => println!(">>>   Segment {}: Text({})", i, text),
+                _ => {}
+            }
+        }
+    }
+
+    segments
+}
+
+/// Extract image asset path from a <w:drawing> block.
+/// 
+/// Looks for r:embed="rIdX" in <a:blip> element.
+/// TODO: Parse document.xml.rels to map rId → actual media file path.
+/// For now returns None (placeholder implementation).
+fn extract_image_path_from_drawing(_drawing_block: &str) -> Option<String> {
+    // TODO: Parse blip:embed rId, look up in document.xml.rels, map to media/imageN.ext
+    // For now, return None since we need the full extraction logic with rels parsing
+    None
+}
+
+/// Convert segments to plain text for regex pattern matching.
+///
+/// Used to detect question/option prefixes while preserving segment structure.
+/// Math segments are represented as single space (so they don't interfere with text matching).
+fn segments_to_plain_text(segments: &[Segment]) -> String {
+    let mut result = String::new();
+    for seg in segments {
+        match seg {
+            Segment::Text { text } => {
+                if !result.is_empty() && !result.ends_with(' ') {
+                    result.push(' ');
+                }
+                result.push_str(text);
+            }
+            Segment::Math { .. } => {
+                // Represent math as a placeholder space for regex purposes
+                if !result.is_empty() && !result.ends_with(' ') {
+                    result.push(' ');
+                }
+            }
+            Segment::Image { .. } => {
+                // Images don't contribute to text matching
+            }
+        }
+    }
+    result
+}
+
+/// Remove prefix characters from segments.
+///
+/// Used after detecting question/option prefix (e.g., "Câu 1. " or "A. ")
+/// to get the actual content segments without the prefix.
+///
+/// # Arguments
+/// * `segments` - Original segments from paragraph
+/// * `prefix_len` - Number of characters to skip (from plain text representation)
+fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Segment> {
+    let mut result = Vec::new();
+    let mut chars_skipped = 0;
+
+    for seg in segments {
+        match seg {
+            Segment::Text { text } => {
+                if chars_skipped >= prefix_len {
+                    // Already skipped enough, keep this segment
+                    result.push(seg.clone());
+                } else if chars_skipped + text.len() > prefix_len {
+                    // Prefix ends in the middle of this text segment
+                    let skip_in_this = prefix_len - chars_skipped;
+                    let remaining = text[skip_in_this..].trim_start().to_string();
+                    if !remaining.is_empty() {
+                        result.push(Segment::Text { text: remaining });
+                    }
+                    chars_skipped = prefix_len;
+                } else {
+                    // This entire text segment is part of the prefix, skip it
+                    chars_skipped += text.len() + 1; // +1 for space added in plain text
+                }
+            }
+            Segment::Math { .. } => {
+                // Math occupies 1 space in plain text
+                if chars_skipped >= prefix_len {
+                    result.push(seg.clone());
+                } else {
+                    chars_skipped += 1;
+                }
+            }
+            Segment::Image { .. } => {
+                // Images don't occupy space in plain text
+                if chars_skipped >= prefix_len {
+                    result.push(seg.clone());
+                }
+            }
+        }
     }
 
     result
 }
 
+/// Extract plain text from a block by concatenating all <w:t> elements.
+///
+/// Used by styling-aware functions (like collect_labeled_option_runs)
+/// that need plain text for pattern matching while preserving run boundaries.
 fn extract_text_from_w_p(block: &str) -> String {
     let mut result = String::new();
     let mut cursor = 0;
@@ -295,7 +547,9 @@ fn extract_runs_from_w_p(block: &str) -> Vec<RunInfo> {
 /// (e.g. the run whose text is exactly "A." or "#A.").
 pub fn collect_labeled_option_runs(document_xml: &str) -> HashMap<u32, Vec<LabeledOptionRuns>> {
     let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
-    let option_label_re = Regex::new(r"^(?P<label>#?[A-F])\.").unwrap();
+    // Chấp nhận cả trường hợp nhãn chỉ là chữ cái ("D") lẫn "D." trong cùng một run.
+    // Điều này xử lý các tình huống DOCX tách "D" và "." thành hai run khác nhau.
+    let option_label_re = Regex::new(r"^(?P<label>#?[A-F])(\.|$)").unwrap();
 
     let mut result: HashMap<u32, Vec<LabeledOptionRuns>> = HashMap::new();
 

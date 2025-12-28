@@ -21,8 +21,12 @@ pub struct OptionItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum Segment {
+    #[serde(rename = "Text")]
     Text { text: String },
+    #[serde(rename = "Image")]
     Image { asset_path: String },
+    #[serde(rename = "Math")]
     Math { omml: String },
 }

@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MathBlock } from "../../lib/mathjax";
 import { ommlToMathml } from "../../lib/omml";
 import { ImageSegment } from "../../components/ImageSegment";
+import { AcademicCapIcon } from "@heroicons/react/24/outline";
 
 type Segment =
   | { type: "Text"; text: string }
@@ -95,82 +96,125 @@ export const PreviewPage: FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-6 py-10">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Xem trước đề đã nhập
-        </h1>
-        <p className="mt-4 text-sm text-slate-600">
-          Job ID: <span className="font-mono text-slate-800">{jobId}</span>
-        </p>
+    <div className="min-h-screen">
+      {/* Background giống design: xanh + sọc chéo */}
+      <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_0%,rgba(255,255,255,0.9),rgba(255,255,255,0.35),rgba(255,255,255,0)_70%),linear-gradient(135deg,#8fd3ff_0%,#36b9ff_35%,#1aa7ff_55%,#1296f0_100%)]">
+        <div className="min-h-screen bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.10)_0,rgba(255,255,255,0.10)_24px,rgba(255,255,255,0.03)_24px,rgba(255,255,255,0.03)_52px)]">
+          {/* Top bar */}
+          <header className="flex items-center justify-between border-b border-white/30 bg-white/40 px-6 py-4 backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-violet-600 shadow-md shadow-violet-200">
+                <AcademicCapIcon className="h-5 w-5 text-white" />
+              </span>
+              <div className="text-lg font-bold text-violet-700">SiroMix</div>
+            </div>
 
-        {loading && (
-          <p className="mt-6 text-sm text-slate-600">Đang tải dữ liệu đề...</p>
-        )}
+            <div className="text-sm font-medium text-white/80 drop-shadow">
+              Trộn đề offline-first
+            </div>
+          </header>
 
-        {error && !loading && (
-          <p className="mt-6 text-sm text-rose-600">
-            Không tải được dữ liệu đề: {error}
-          </p>
-        )}
+          {/* Main */}
+          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-6xl items-start justify-center px-6 py-10">
+            <div className="w-full max-w-5xl">
+              {/* Card */}
+              <div className="rounded-[28px] border border-slate-200/60 bg-white/90 shadow-2xl shadow-slate-900/10 backdrop-blur">
+                <div className="px-10 py-10">
+                  <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
+                    Xem trước đề đã nhập
+                  </h1>
+                  <p className="mt-3 text-base text-slate-600">
+                    Job ID: <span className="font-mono text-slate-800">{jobId}</span>
+                  </p>
 
-        {!loading && !error && parsed && (
-          <div className="mt-8 space-y-6">
-            {parsed.questions && parsed.questions.length > 0 ? (
-              parsed.questions.map((q) => (
-                <div
-                  key={q.number}
-                  className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="mt-1 text-sm font-semibold text-slate-700">
-                      Câu {q.number}.
-                    </div>
-                    <div className="flex-1 text-sm text-slate-800">
-                      {q.stem.map((seg, idx) => renderSegment(seg, idx))}
-                    </div>
-                  </div>
+                  {loading && (
+                    <p className="mt-6 text-sm text-slate-600">Đang tải dữ liệu đề...</p>
+                  )}
 
-                  <div className="mt-3 space-y-1.5 text-sm">
-                    {q.options.map((opt) => {
-                      const isCorrect =
-                        q.correct_label && opt.label === q.correct_label;
-                      return (
-                        <div
-                          key={opt.label}
-                          className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
-                            isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
-                          }`}
+                  {error && !loading && (
+                    <p className="mt-6 text-sm text-rose-600">
+                      Không tải được dữ liệu đề: {error}
+                    </p>
+                  )}
+
+                  {!loading && !error && parsed && (
+                    <>
+                      <div className="mt-8 space-y-6">
+                        {parsed.questions && parsed.questions.length > 0 ? (
+                          parsed.questions.map((q) => (
+                            <div
+                              key={q.number}
+                              className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+                            >
+                              <div className="flex items-start gap-2">
+                                <div className="mt-1 text-sm font-semibold text-slate-700">
+                                  Câu {q.number}.
+                                </div>
+                                <div className="flex-1 text-sm text-slate-800">
+                                  {q.stem.map((seg, idx) => renderSegment(seg, idx))}
+                                </div>
+                              </div>
+
+                              <div className="mt-3 space-y-1.5 text-sm">
+                                {q.options.map((opt) => {
+                                  const isCorrect =
+                                    q.correct_label && opt.label === q.correct_label;
+                                  return (
+                                    <div
+                                      key={opt.label}
+                                      className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
+                                        isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
+                                      }`}
+                                    >
+                                      <div className="mt-0.5 w-6 shrink-0 text-slate-700">
+                                        {opt.label}.
+                                      </div>
+                                      <div className="flex-1 text-slate-800">
+                                        {opt.content.length === 0 ? (
+                                          <span className="italic text-slate-400">
+                                            (Trống)
+                                          </span>
+                                        ) : (
+                                          opt.content.map((seg, idx) =>
+                                            renderSegment(seg, idx),
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                            <p className="text-sm text-slate-600">
+                              Không tìm thấy câu hỏi nào trong file. Parsed doc: {JSON.stringify(parsed)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CTA Button */}
+                      <div className="mt-10 pt-2">
+                        <button
+                          type="button"
+                          className="w-full rounded-full bg-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
                         >
-                          <div className="mt-0.5 w-6 shrink-0 text-slate-700">
-                            {opt.label}.
-                          </div>
-                          <div className="flex-1 text-slate-800">
-                            {opt.content.length === 0 ? (
-                              <span className="italic text-slate-400">
-                                (Trống)
-                              </span>
-                            ) : (
-                              opt.content.map((seg, idx) =>
-                                renderSegment(seg, idx),
-                              )
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          Trộn ngay
+                        </button>
+
+                        <p className="mt-4 text-center text-xs text-slate-500">
+                          Xử lý 100% offline • Export .docx + .xlsx
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
-              ))
-            ) : (
-              <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                <p className="text-sm text-slate-600">
-                  Không tìm thấy câu hỏi nào trong file. Parsed doc: {JSON.stringify(parsed)}
-                </p>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );

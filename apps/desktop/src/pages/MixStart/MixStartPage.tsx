@@ -112,8 +112,8 @@ export function MixStartPage() {
           </header>
 
           {/* Main */}
-          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-5xl items-center justify-center px-6 py-10">
-            <div className="w-full max-w-4xl">
+          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-6xl items-center justify-center px-6 py-10">
+            <div className="w-full max-w-5xl">
               {/* Card */}
               <div className="rounded-[28px] border border-slate-200/60 bg-white/90 shadow-2xl shadow-slate-900/10 backdrop-blur">
                 <div className="px-10 py-10">

@@ -65,7 +65,7 @@ export const PreviewPage: FC = () => {
   const renderSegment = (segment: Segment, key: number) => {
     switch (segment.type) {
       case "Text":
-        return <span key={key}>{segment.text}</span>;
+        return <span key={key}>{segment.text} </span>;
       case "Image":
         return (
           <img
@@ -78,14 +78,15 @@ export const PreviewPage: FC = () => {
         );
       case "Math": {
         const mathml = ommlToMathml(segment.omml);
-        if (!mathml) {
-          return null;
+        if (!mathml || mathml.trim() === '') {
+          console.error("Failed to convert OMML to MathML:", segment.omml.substring(0, 100));
+          return <span key={key} className="text-red-500 italic">[Math]</span>;
         }
         return (
           <MathBlock
             key={key}
             mathml={mathml}
-            className="my-2 inline-block align-middle"
+            className="mx-1 inline-block align-middle"
           />
         );
       }

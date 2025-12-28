@@ -20,7 +20,6 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
     let mut questions: Vec<Question> = Vec::new();
     let mut current_question: Option<Question> = None;
     let mut cursor = 0;
-    let mut paragraph_count = 0;
 
     // Walk through all <w:p> blocks
     loop {
@@ -37,11 +36,6 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
         let end = start + end_rel;
 
         let block = &document_xml[start..end];
-        paragraph_count += 1;
-        
-        if paragraph_count == 2 {
-            println!("\n=== FULL RAW BLOCK 2 ===\n{}\n=== END ===\n", block);
-        }
         
         // Extract segments (text, math, images) from this paragraph
         let segments = extract_segments_from_paragraph(block);
@@ -53,20 +47,6 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
         // Get plain text for pattern matching
         let plain_text = segments_to_plain_text(&segments);
         let trimmed = plain_text.trim();
-        
-        if paragraph_count <= 5 {
-            println!("Paragraph {}: segments count={}, plain_text='{}'", 
-                paragraph_count, segments.len(), trimmed);
-            if segments.len() > 0 && segments.len() <= 3 {
-                for (i, seg) in segments.iter().enumerate() {
-                    match seg {
-                        Segment::Text { text } => println!("  Segment {}: Text({})", i, text),
-                        Segment::Math { omml } => println!("  Segment {}: Math({}...)", i, &omml[..omml.len().min(50)]),
-                        Segment::Image { asset_path } => println!("  Segment {}: Image({})", i, asset_path),
-                    }
-                }
-            }
-        }
 
         // Case 1: New question paragraph (starts with "Câu X." or "Question X.")
         if let Some(caps) = question_re.captures(trimmed) {
@@ -156,9 +136,6 @@ pub fn parse_document_xml_to_parsed_doc(document_xml: &str) -> ParsedDoc {
         }
     }
 
-    println!("Total paragraphs processed: {}", paragraph_count);
-    println!("Total questions found: {}", questions.len());
-
     ParsedDoc { questions }
 }
 
@@ -172,14 +149,6 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
     let mut segments = Vec::new();
     let mut cursor = 0;
     let mut pending_text = String::new();
-    
-    let debug = block.contains("A. Số 2 là số nguyên") || block.contains("A. </w:t>");
-    
-    if debug {
-        println!("\n>>> extract_segments_from_paragraph called");
-        println!(">>> Block length: {}", block.len());
-        println!(">>> Block preview: {}...", &block[..block.len().min(300)]);
-    }
 
     loop {
         // Look for next interesting element: <w:t>, <m:oMath>, or <w:drawing>
@@ -194,11 +163,6 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
         };
         let next_math = block[cursor..].find("<m:oMath");
         let next_image = block[cursor..].find("<w:drawing");
-        
-        if debug {
-            println!(">>> Loop iteration: cursor={}, next_text={:?}, next_math={:?}, next_image={:?}", 
-                cursor, next_text, next_math, next_image);
-        }
 
         // Find which comes first
         let (element_type, offset) = match (next_text, next_math, next_image) {
@@ -257,10 +221,6 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
                 let content_end = content_start + end_tag_rel;
 
                 let fragment = &block[content_start..content_end];
-                
-                if debug {
-                    println!("DEBUG: Extracted fragment from {}..{}: '{}'", content_start, content_end, fragment);
-                }
                 
                 // Decode XML entities
                 let fragment = fragment
@@ -331,16 +291,6 @@ fn extract_segments_from_paragraph(block: &str) -> Vec<Segment> {
             segments.push(Segment::Text {
                 text: trimmed.to_string(),
             });
-        }
-    }
-    
-    if debug {
-        println!(">>> extract_segments_from_paragraph returning {} segments", segments.len());
-        for (i, seg) in segments.iter().enumerate() {
-            match seg {
-                Segment::Text { text } => println!(">>>   Segment {}: Text({})", i, text),
-                _ => {}
-            }
         }
     }
 

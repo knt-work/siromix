@@ -1,10 +1,11 @@
 import type { FC } from "react";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { MathBlock } from "../../lib/mathjax";
 import { ommlToMathml } from "../../lib/omml";
 import { ImageSegment } from "../../components/ImageSegment";
+import { FlowNavigation } from "../../components/FlowNavigation";
 import { AcademicCapIcon } from "@heroicons/react/24/outline";
 
 type Segment =
@@ -31,6 +32,7 @@ type ParsedDoc = {
 
 export const PreviewPage: FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
+  const navigate = useNavigate();
 
   const [parsed, setParsed] = useState<ParsedDoc | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -196,17 +198,17 @@ export const PreviewPage: FC = () => {
                       </div>
 
                       {/* CTA Button */}
-                      <div className="mt-10 pt-2">
-                        <button
-                          type="button"
-                          className="w-full rounded-full bg-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
-                        >
-                          Trộn ngay
-                        </button>
-
-                        <p className="mt-4 text-center text-xs text-slate-500">
-                          Xử lý 100% offline • Export .docx + .xlsx
-                        </p>
+                      <div className="mt-10">
+                        <FlowNavigation
+                          onBack={() => navigate("/")}
+                          onNext={() => {
+                            // TODO: implement mix logic
+                            console.log("Trộn ngay clicked");
+                          }}
+                          backLabel="Quay lại"
+                          nextLabel="Trộn ngay"
+                          subtitle="Xử lý 100% offline • Export .docx + .xlsx"
+                        />
                       </div>
                     </>
                   )}

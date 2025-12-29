@@ -3,6 +3,7 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
 import { LoadingOverlay } from "../../components/LoadingOverlay";
+import { FlowNavigation } from "../../components/FlowNavigation";
 import { analyzeDocx } from "../../services/tauri/analyzeDocx";
 import {
   AcademicCapIcon,
@@ -238,18 +239,19 @@ export function MixStartPage() {
                     </div>
 
                     {/* CTA */}
-                    <div className="pt-2">
-                      <button
-                        type="submit"
-                        className="w-full rounded-full bg-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
-                      >
-                        Tiếp theo
-                      </button>
-
-                      <p className="mt-4 text-center text-xs text-slate-500">
-                        Xử lý 100% offline • Export .docx + .xlsx
-                      </p>
-                    </div>
+                    <FlowNavigation
+                      onNext={() => {
+                        // Trigger form submit programmatically
+                        const form = document.querySelector('form');
+                        if (form) {
+                          form.requestSubmit();
+                        }
+                      }}
+                      nextLabel="Tiếp theo"
+                      nextDisabled={!hasFile}
+                      loading={isAnalyzing}
+                      subtitle="Xử lý 100% offline • Export .docx + .xlsx"
+                    />
                   </form>
                 </div>
               </div>

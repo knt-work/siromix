@@ -5,6 +5,8 @@ pub mod assets;
 pub mod model;
 pub mod parser;
 pub mod validator;
+pub mod writer;
+pub mod excel;
 
 #[allow(dead_code)]
 #[derive(Debug)]

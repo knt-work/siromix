@@ -1,13 +1,19 @@
 import type { FC } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AcademicCapIcon, DocumentArrowDownIcon } from "@heroicons/react/24/outline";
+import { AcademicCapIcon, DocumentArrowDownIcon, DocumentTextIcon, QuestionMarkCircleIcon, ClockIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
+import { open } from "@tauri-apps/plugin-dialog";
 import { FlowNavigation } from "../../components/FlowNavigation";
 import { AnswerKeyTable } from "./components/AnswerKeyTable";
 import { useMixStore } from "../../store/mixStore";
+import { exportMixedExams } from "../../services/tauri/exportMixed";
 
 export const MixedResultPage: FC = () => {
   const navigate = useNavigate();
   const { mixedExams, parsedData, jobId } = useMixStore();
+  const [exporting, setExporting] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // If no mixed exams, redirect back
   if (!mixedExams || mixedExams.length === 0) {
@@ -22,8 +28,82 @@ export const MixedResultPage: FC = () => {
   const numQuestions = mixedExams[0]?.questions.length || 0;
   const numVariants = mixedExams.length;
 
+  const handleExport = async () => {
+    try {
+      // Open folder picker
+      const selectedPath = await open({
+        directory: true,
+        multiple: false,
+        title: "Chọn thư mục lưu file",
+      });
+
+      if (!selectedPath) {
+        return; // User cancelled
+      }
+
+      setExporting(true);
+      setExportError(null);
+
+      // Call export command
+      const result = await exportMixedExams({
+        jobId: jobId || "",
+        exams: mixedExams,
+        originalAnswers: originalAnswers,
+        outputDir: selectedPath as string,
+      });
+
+      console.log("Export result:", result);
+      setExporting(false);
+      setExportSuccess(true);
+
+      // Auto-hide success message after 3s
+      setTimeout(() => setExportSuccess(false), 3000);
+    } catch (error) {
+      console.error("Export error:", error);
+      setExporting(false);
+      setExportError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <div className="min-h-screen">
+      {/* Success Modal */}
+      {exportSuccess && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-3xl border border-emerald-200 bg-white p-8 shadow-2xl">
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                <CheckCircleIcon className="h-10 w-10 text-emerald-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                Tải xuống thành công!
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {numVariants} file DOCX + 1 file XLSX đã được lưu
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {exportError && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-3xl border border-red-200 bg-white p-8 shadow-2xl">
+            <div className="flex flex-col items-center text-center">
+              <h2 className="text-2xl font-bold text-red-900">Lỗi export</h2>
+              <p className="mt-2 text-sm text-red-600">{exportError}</p>
+              <button
+                onClick={() => setExportError(null)}
+                className="mt-4 rounded-full bg-slate-600 px-6 py-2 text-sm font-bold text-white hover:bg-slate-700"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Background giống design: xanh + sọc chéo */}
       <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_0%,rgba(255,255,255,0.9),rgba(255,255,255,0.35),rgba(255,255,255,0)_70%),linear-gradient(135deg,#8fd3ff_0%,#36b9ff_35%,#1aa7ff_55%,#1296f0_100%)]">
         <div className="min-h-screen bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.10)_0,rgba(255,255,255,0.10)_24px,rgba(255,255,255,0.03)_24px,rgba(255,255,255,0.03)_52px)]">
@@ -54,20 +134,16 @@ export const MixedResultPage: FC = () => {
                   {/* Stats Summary */}
                   <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-600">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">📋</span>
-                      <span className="font-semibold">
-                        {numVariants} đề thi
-                      </span>
+                      <DocumentTextIcon className="h-5 w-5 text-emerald-600" />
+                      <span className="font-semibold text-emerald-700">{numVariants} đề thi</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">🔢</span>
-                      <span className="font-semibold">
-                        {numQuestions} câu hỏi
-                      </span>
+                      <QuestionMarkCircleIcon className="h-5 w-5 text-emerald-600" />
+                      <span className="font-semibold text-emerald-700">{numQuestions} câu hỏi</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">⏱️</span>
-                      <span className="font-semibold">90 phút</span>
+                      <ClockIcon className="h-5 w-5 text-emerald-600" />
+                      <span className="font-semibold text-emerald-700">90 phút</span>
                     </div>
                   </div>
 
@@ -129,12 +205,11 @@ export const MixedResultPage: FC = () => {
                 <div className="px-10 py-6">
                   <FlowNavigation
                     onBack={() => navigate(`/preview/${jobId || ""}`)}
-                    onNext={() => {
-                      // TODO: implement export logic
-                      console.log("Export clicked");
-                    }}
+                    onNext={handleExport}
                     backLabel="Xem lại"
                     nextLabel="Tải xuống"
+                    nextDisabled={exporting}
+                    loading={exporting}
                     subtitle="Export DOCX + XLSX • Lưu vào máy"
                   />
                 </div>

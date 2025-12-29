@@ -1,6 +1,6 @@
 // src/components/FlowNavigation.tsx
 import type { FC } from "react";
-import { ArrowLeftIcon, ArrowRightIcon, ArrowPathIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowRightIcon, ArrowPathIcon, CheckIcon, DocumentArrowDownIcon } from "@heroicons/react/24/outline";
 
 export interface FlowNavigationProps {
   /**
@@ -57,8 +57,10 @@ export const FlowNavigation: FC<FlowNavigationProps> = ({
   // Determine which icon to use for next button
   const getNextIcon = () => {
     if (loading) return null;
-    if (nextLabel.toLowerCase().includes("trộn")) return ArrowPathIcon;
-    if (nextLabel.toLowerCase().includes("lưu") || nextLabel.toLowerCase().includes("hoàn tất")) return CheckIcon;
+    const nl = nextLabel.toLowerCase();
+    if (nl.includes("trộn")) return ArrowPathIcon;
+    if (nl.includes("tải") || nl.includes("download")) return DocumentArrowDownIcon;
+    if (nl.includes("lưu") || nl.includes("hoàn tất")) return CheckIcon;
     return ArrowRightIcon;
   };
 

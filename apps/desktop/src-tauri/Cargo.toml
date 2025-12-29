@@ -26,4 +26,6 @@ serde_json = "1"
 zip = "0.6"
 regex = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+rust_xlsxwriter = "0.76"
+uuid = { version = "1", features = ["v4"] }
 

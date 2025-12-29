@@ -165,12 +165,100 @@ fn get_parsed(
     Ok(parsed)
 }
 
+/// Export mixed exams to DOCX and XLSX files
+#[tauri::command]
+async fn export_mixed_exams(
+    app_handle: tauri::AppHandle,
+    job_id: String,
+    exams: Vec<crate::docx::excel::MixedExam>,
+    original_answers: Vec<String>,
+    output_dir: String,
+) -> Result<ExportResponse, String> {
+    use crate::storage::paths;
+    use crate::docx::writer::ExamWriter;
+    use crate::docx::excel;
+    use std::path::PathBuf;
+
+    let workspace_dir = paths::job_workspace_dir(&app_handle, &job_id)?;
+    let assets_dir = workspace_dir.join("assets");
+    let output_path = PathBuf::from(&output_dir);
+
+    let mut docx_files = Vec::new();
+
+    // Generate DOCX for each exam variant
+    for exam in &exams {
+        // Convert MixedQuestion back to Question format
+        let questions: Vec<crate::docx::model::Question> = exam
+            .questions
+            .iter()
+            .map(|mq| {
+                // Reconstruct Question from MixedQuestion
+                // Note: We'll need to match with original parsed data
+                crate::docx::model::Question {
+                    number: mq.display_number as u32,
+                    stem: vec![], // Will be populated from original
+                    options: vec![], // Will be populated from shuffled
+                    correct_label: mq.correct_answer.clone(),
+                }
+            })
+            .collect();
+
+        let writer = ExamWriter {
+            exam_code: exam.exam_code.clone(),
+            questions,
+            exam_title: "ĐỀ THI GIỮA KỲ I".to_string(),
+            subject: "Toán học".to_string(),
+            duration_minutes: 90,
+            assets_dir: assets_dir.clone(),
+        };
+
+        let filename = format!("De_{}.docx", exam.exam_code);
+        let file_path = output_path.join(&filename);
+
+        writer
+            .write_to_file(&file_path)
+            .map_err(|e| format!("Lỗi tạo file {}: {:?}", filename, e))?;
+
+        docx_files.push(filename);
+    }
+
+    // Generate XLSX answer key
+    let xlsx_filename = "Dap_An.xlsx";
+    let xlsx_path = output_path.join(xlsx_filename);
+
+    excel::write_answer_key(&exams, &original_answers, &xlsx_path)
+        .map_err(|e| format!("Lỗi tạo file Excel: {:?}", e))?;
+
+    Ok(ExportResponse {
+        success: true,
+        docx_files,
+        xlsx_file: xlsx_filename.to_string(),
+        output_directory: output_dir,
+    })
+}
+
+#[derive(Serialize)]
+pub struct ExportResponse {
+    pub success: bool,
+    #[serde(rename = "docxFiles")]
+    pub docx_files: Vec<String>,
+    #[serde(rename = "xlsxFile")]
+    pub xlsx_file: String,
+    #[serde(rename = "outputDirectory")]
+    pub output_directory: String,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet, analyze_docx, get_parsed])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            analyze_docx,
+            get_parsed,
+            export_mixed_exams
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

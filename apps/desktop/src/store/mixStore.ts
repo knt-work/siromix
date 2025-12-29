@@ -1,6 +1,7 @@
 // src/store/mixStore.ts
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { MixedExam } from "../lib/mixAlgorithm";
 
 // Types matching the ParsedDoc structure from PreviewPage
 type Segment =
@@ -38,11 +39,19 @@ interface MixState {
   // Loading state
   isAnalyzing: boolean;
   
+  // Mixed exams data
+  mixedExams: MixedExam[] | null;
+  
+  // Number of exam variants
+  numVariants: number;
+  
   // Actions
   setSelectedFile: (path: string | null) => void;
   setJobId: (id: string | null) => void;
   setParsedData: (data: ParsedDoc | null) => void;
   setIsAnalyzing: (analyzing: boolean) => void;
+  setMixedExams: (exams: MixedExam[] | null) => void;
+  setNumVariants: (num: number) => void;
   
   // Clear all data (e.g., when selecting a new file)
   clearAnalysis: () => void;
@@ -59,6 +68,8 @@ export const useMixStore = create<MixState>()(
       jobId: null,
       parsedData: null,
       isAnalyzing: false,
+      mixedExams: null,
+      numVariants: 4,
       
       // Actions
       setSelectedFile: (path) => set({ selectedFilePath: path }),
@@ -69,10 +80,15 @@ export const useMixStore = create<MixState>()(
       
       setIsAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
       
+      setMixedExams: (exams) => set({ mixedExams: exams }),
+      
+      setNumVariants: (num) => set({ numVariants: num }),
+      
       clearAnalysis: () =>
         set({
           jobId: null,
           parsedData: null,
+          mixedExams: null,
         }),
       
       reset: () =>
@@ -81,6 +97,8 @@ export const useMixStore = create<MixState>()(
           jobId: null,
           parsedData: null,
           isAnalyzing: false,
+          mixedExams: null,
+          numVariants: 4,
         }),
     }),
     {
@@ -90,6 +108,8 @@ export const useMixStore = create<MixState>()(
         selectedFilePath: state.selectedFilePath,
         jobId: state.jobId,
         parsedData: state.parsedData,
+        mixedExams: state.mixedExams,
+        numVariants: state.numVariants,
       }),
     }
   )

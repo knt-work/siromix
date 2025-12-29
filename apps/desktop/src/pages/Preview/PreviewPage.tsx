@@ -6,20 +6,24 @@ import { MathBlock } from "../../lib/mathjax";
 import { ommlToMathml } from "../../lib/omml";
 import { ImageSegment } from "../../components/ImageSegment";
 import { FlowNavigation } from "../../components/FlowNavigation";
+import { ProgressModal, type ProgressStage } from "../../components/ProgressModal";
 import { AcademicCapIcon, XMarkIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { useMixStore, type ParsedDoc, type Segment } from "../../store/mixStore";
+import { mixExam } from "../../lib/mixAlgorithm";
 
 export const PreviewPage: FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   
   // Use Zustand store
-  const { parsedData: cachedParsedData, setParsedData } = useMixStore();
+  const { parsedData: cachedParsedData, setParsedData, setMixedExams, numVariants } = useMixStore();
 
   const [parsed, setParsed] = useState<ParsedDoc | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [showProgress, setShowProgress] = useState<boolean>(false);
+  const [progressStages, setProgressStages] = useState<ProgressStage[]>([]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -61,6 +65,66 @@ export const PreviewPage: FC = () => {
     };
   }, [jobId, cachedParsedData, setParsedData]);
 
+  const handleConfirmMix = async () => {
+    if (!parsed) return;
+
+    setShowConfirmModal(false);
+    setShowProgress(true);
+
+    try {
+      // Stage 1: Shuffling questions
+      setProgressStages([
+        { label: "Đảo câu hỏi", done: false, current: true },
+        { label: "Đảo đáp án", done: false },
+        { label: "Tạo mã đề", done: false },
+        { label: "Hoàn tất", done: false },
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      // Stage 2: Shuffling options
+      setProgressStages([
+        { label: "Đảo câu hỏi", done: true },
+        { label: "Đảo đáp án", done: false, current: true },
+        { label: "Tạo mã đề", done: false },
+        { label: "Hoàn tất", done: false },
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      // Stage 3: Generating exam codes
+      setProgressStages([
+        { label: "Đảo câu hỏi", done: true },
+        { label: "Đảo đáp án", done: true },
+        { label: "Tạo mã đề", done: false, current: true },
+        { label: "Hoàn tất", done: false },
+      ]);
+
+      // Run the mix algorithm
+      const variants = mixExam(parsed, numVariants);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      // Stage 4: Complete
+      setProgressStages([
+        { label: "Đảo câu hỏi", done: true },
+        { label: "Đảo đáp án", done: true },
+        { label: "Tạo mã đề", done: true },
+        { label: "Hoàn tất", done: true, current: true },
+      ]);
+
+      // Save to store
+      setMixedExams(variants);
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      // Navigate to result
+      setShowProgress(false);
+      navigate("/result");
+    } catch (error) {
+      console.error("Mix error:", error);
+      setShowProgress(false);
+      // TODO: Show error modal
+    }
+  };
+
   const renderSegment = (segment: Segment, key: number) => {
     switch (segment.type) {
       case "Text":
@@ -94,6 +158,13 @@ export const PreviewPage: FC = () => {
 
   return (
     <div className="min-h-screen">
+      {/* Progress Modal */}
+      <ProgressModal
+        isOpen={showProgress}
+        stages={progressStages}
+        message={`Đang tạo ${numVariants} đề thi...`}
+      />
+
       {/* Confirm Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
@@ -154,10 +225,7 @@ export const PreviewPage: FC = () => {
                   <span>Chờ chút</span>
                 </button>
                 <button
-                  onClick={() => {
-                    // TODO: implement mix logic
-                    console.log("Confirmed - starting mix process");
-                  }}
+                  onClick={handleConfirmMix}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-violet-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
                 >
                   <CheckIcon className="h-5 w-5" />

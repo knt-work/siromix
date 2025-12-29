@@ -24,8 +24,8 @@ export function MixStartPage() {
     const file = event.target.files?.[0] ?? null;
     setHasFile(!!file);
     // Trong Tauri, nên dùng dialog API để lấy đường dẫn tuyệt đối.
-    // Trường hợp input file được dùng trong môi trường web thuần, ta không thể lấy absolute path.
-    setSourcePath(null);
+    // Trường hợp input file được dùng trong môi trường web thuần, ta chỉ có thể lấy `file.name`.
+    setSourcePath(file ? file.name : null);
   };
 
   const handlePickFile = async () => {
@@ -205,7 +205,13 @@ export function MixStartPage() {
                             Kéo thả file .docx vào đây hoặc bấm để chọn file
                           </p>
                           <p className="mt-1 text-sm text-slate-700">
-                            Chưa có file nào được chọn.
+                            {sourcePath ? (
+                              <span className="font-medium text-slate-800" title={sourcePath}>
+                                {sourcePath.split(/[/\\]/).pop()}
+                              </span>
+                            ) : (
+                              "Chưa có file nào được chọn."
+                            )}
                           </p>
 
                           <label

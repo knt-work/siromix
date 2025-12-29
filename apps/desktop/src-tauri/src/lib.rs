@@ -38,7 +38,7 @@ pub struct AnalyzeDocxError {
 }
 
 #[tauri::command]
-fn analyze_docx(
+async fn analyze_docx(
     app_handle: tauri::AppHandle,
     payload: AnalyzeDocxPayload,
 ) -> Result<AnalyzeDocxResponse, String> {
@@ -62,9 +62,9 @@ fn analyze_docx(
     let document_xml = read::read_document_xml(docx_path)
         .map_err(|e| format!("Không đọc được document.xml: {:?}", e))?;
 
-    // 2) Extract media into `<workspace>/assets/`
+    // 2) Extract media into `<workspace>/assets/` (async - uses background tasks for WMF conversion)
     let assets_dir = workspace_dir.join("assets");
-    let extracted_assets = assets::extract_media(docx_path, &assets_dir)
+    let extracted_assets = assets::extract_media(docx_path, &assets_dir).await
         .map_err(|e| format!("Không extract media từ docx: {:?}", e))?;
 
     // 3) Parse -> ParsedDoc, đồng thời map các image (kể cả OLE Equation

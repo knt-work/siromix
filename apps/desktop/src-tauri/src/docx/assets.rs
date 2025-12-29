@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use zip::read::ZipArchive;
+use tokio::task;
 
 use super::{AppError, ExtractedAsset};
 
 /// Extract all image files under `word/media/` from a `.docx` into
 /// the given `assets_dir`. Returns the list of extracted assets
 /// (file name and absolute path).
-pub fn extract_media(
+pub async fn extract_media(
     docx_path: &Path,
     assets_dir: &Path,
 ) -> Result<Vec<ExtractedAsset>, AppError> {
@@ -79,7 +80,7 @@ pub fn extract_media(
     }
 
     // Post-process: attempt to convert WMF/EMF files to PNG
-    convert_wmf_assets(&mut extracted, assets_dir);
+    convert_wmf_assets(&mut extracted, assets_dir).await;
 
     Ok(extracted)
 }
@@ -91,8 +92,14 @@ pub fn extract_media(
 /// `converted_path` field is populated.
 /// 
 /// Falls back gracefully if ImageMagick is not available.
-fn convert_wmf_assets(assets: &mut Vec<ExtractedAsset>, assets_dir: &Path) {
-    for asset in assets.iter_mut() {
+/// 
+/// Uses async background tasks to avoid blocking the main thread,
+/// preventing "Not responding" UI freezes when converting multiple images.
+async fn convert_wmf_assets(assets: &mut Vec<ExtractedAsset>, assets_dir: &Path) {
+    // Convert all WMF/EMF files concurrently using background tasks
+    let mut tasks = Vec::new();
+    
+    for (index, asset) in assets.iter().enumerate() {
         // Check if this is a WMF or EMF file
         let ext = asset.absolute_path
             .extension()
@@ -113,20 +120,36 @@ fn convert_wmf_assets(assets: &mut Vec<ExtractedAsset>, assets_dir: &Path) {
             .to_string() + ".png";
         
         let png_path = assets_dir.join(&png_filename);
-
-        // Try to convert using ImageMagick
-        match convert_wmf_to_png(&asset.absolute_path, &png_path) {
-            Ok(true) => {
-                println!("[WMF] Successfully converted: {} → {}", 
-                    asset.file_name, png_filename);
-                asset.converted_path = Some(png_path);
-            }
-            Ok(false) => {
-                println!("[WMF] ImageMagick not available, keeping original: {}", 
-                    asset.file_name);
-            }
-            Err(e) => {
-                eprintln!("[WMF] Conversion failed for {}: {:?}", asset.file_name, e);
+        let wmf_path = asset.absolute_path.clone();
+        let file_name = asset.file_name.clone();
+        
+        // Spawn blocking task to run ImageMagick without blocking main thread
+        let task = task::spawn_blocking(move || {
+            let result = convert_wmf_to_png(&wmf_path, &png_path);
+            (index, result, png_path, png_filename, file_name)
+        });
+        
+        tasks.push(task);
+    }
+    
+    // Wait for all conversions to complete and update assets
+    for task in tasks {
+        if let Ok((index, result, png_path, png_filename, file_name)) = task.await {
+            match result {
+                Ok(true) => {
+                    println!("[WMF] Successfully converted: {} → {}", 
+                        file_name, png_filename);
+                    if let Some(asset) = assets.get_mut(index) {
+                        asset.converted_path = Some(png_path);
+                    }
+                }
+                Ok(false) => {
+                    println!("[WMF] ImageMagick not available, keeping original: {}", 
+                        file_name);
+                }
+                Err(e) => {
+                    eprintln!("[WMF] Conversion failed for {}: {:?}", file_name, e);
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 // src/components/FlowNavigation.tsx
 import type { FC } from "react";
+import { ArrowLeftIcon, ArrowRightIcon, ArrowPathIcon, CheckIcon } from "@heroicons/react/24/outline";
 
 export interface FlowNavigationProps {
   /**
@@ -53,21 +54,35 @@ export const FlowNavigation: FC<FlowNavigationProps> = ({
   loading = false,
   subtitle,
 }) => {
+  // Determine which icon to use for next button
+  const getNextIcon = () => {
+    if (loading) return null;
+    if (nextLabel.toLowerCase().includes("trộn")) return ArrowPathIcon;
+    if (nextLabel.toLowerCase().includes("lưu") || nextLabel.toLowerCase().includes("hoàn tất")) return CheckIcon;
+    return ArrowRightIcon;
+  };
+
+  const NextIcon = getNextIcon();
+
   return (
     <div className="pt-2">
       {/* Button Container */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between">
         {/* Back Button - only display if onBack is provided */}
         {onBack && (
           <button
             type="button"
             onClick={onBack}
             disabled={backDisabled || loading}
-            className="flex-1 rounded-full border border-slate-300 bg-white py-3.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {backLabel}
+            <ArrowLeftIcon className="h-5 w-5" />
+            <span>{backLabel}</span>
           </button>
         )}
+
+        {/* Spacer when only one button exists */}
+        {!onBack && <div></div>}
 
         {/* Next Button - only display if onNext is provided */}
         {onNext && (
@@ -75,9 +90,10 @@ export const FlowNavigation: FC<FlowNavigationProps> = ({
             type="button"
             onClick={onNext}
             disabled={nextDisabled || loading}
-            className="flex-1 rounded-full bg-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Đang xử lý..." : nextLabel}
+            <span>{loading ? "Đang xử lý..." : nextLabel}</span>
+            {NextIcon && <NextIcon className="h-5 w-5" />}
           </button>
         )}
       </div>

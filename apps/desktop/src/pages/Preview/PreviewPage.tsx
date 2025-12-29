@@ -6,7 +6,7 @@ import { MathBlock } from "../../lib/mathjax";
 import { ommlToMathml } from "../../lib/omml";
 import { ImageSegment } from "../../components/ImageSegment";
 import { FlowNavigation } from "../../components/FlowNavigation";
-import { AcademicCapIcon } from "@heroicons/react/24/outline";
+import { AcademicCapIcon, XMarkIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { useMixStore, type ParsedDoc, type Segment } from "../../store/mixStore";
 
 export const PreviewPage: FC = () => {
@@ -19,6 +19,7 @@ export const PreviewPage: FC = () => {
   const [parsed, setParsed] = useState<ParsedDoc | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -93,11 +94,86 @@ export const PreviewPage: FC = () => {
 
   return (
     <div className="min-h-screen">
+      {/* Confirm Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="relative mx-4 w-full max-w-lg rounded-3xl border border-slate-200/60 bg-white shadow-2xl shadow-slate-900/20">
+            {/* Close X Button */}
+            <button
+              onClick={() => setShowConfirmModal(false)}
+              className="absolute right-4 top-4 rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+
+            <div className="px-8 py-8">
+              {/* Icon */}
+              <div className="mb-5 flex justify-center">
+                <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100">
+                  <AcademicCapIcon className="h-8 w-8 text-violet-600" />
+                </div>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-center text-2xl font-bold text-slate-900">
+                Xác nhận trộn đề
+              </h2>
+
+              {/* Message */}
+              <p className="mt-3 text-center text-sm text-slate-600">
+                Bạn có chắc chắn muốn thực hiện trộn đề ngay?
+              </p>
+
+              {/* Mock Data */}
+              <div className="mt-6 space-y-3 rounded-2xl bg-slate-50 p-5">
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Tên kì thi:</span>
+                  <span className="font-semibold text-slate-900">Thi giữa kì I - 2024</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Môn thi:</span>
+                  <span className="font-semibold text-slate-900">Toán học</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Số phút:</span>
+                  <span className="font-semibold text-slate-900">90 phút</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Số đề cần trộn:</span>
+                  <span className="font-semibold text-slate-900">4 đề</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-8 flex items-center gap-3">
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                  <span>Chờ chút</span>
+                </button>
+                <button
+                  onClick={() => {
+                    // TODO: implement mix logic
+                    console.log("Confirmed - starting mix process");
+                  }}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-violet-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
+                >
+                  <CheckIcon className="h-5 w-5" />
+                  <span>Đúng</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Background giống design: xanh + sọc chéo */}
       <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_0%,rgba(255,255,255,0.9),rgba(255,255,255,0.35),rgba(255,255,255,0)_70%),linear-gradient(135deg,#8fd3ff_0%,#36b9ff_35%,#1aa7ff_55%,#1296f0_100%)]">
         <div className="min-h-screen bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.10)_0,rgba(255,255,255,0.10)_24px,rgba(255,255,255,0.03)_24px,rgba(255,255,255,0.03)_52px)]">
           {/* Top bar */}
-          <header className="flex items-center justify-between border-b border-white/30 bg-white/40 px-6 py-4 backdrop-blur-md">
+          <header className="fixed left-0 right-0 top-0 z-50 flex items-center justify-between border-b border-white/30 bg-white/40 px-6 py-4 shadow-lg shadow-slate-900/5 backdrop-blur-md">
             <div className="flex items-center gap-2">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-violet-600 shadow-md shadow-violet-200">
                 <AcademicCapIcon className="h-5 w-5 text-white" />
@@ -111,7 +187,7 @@ export const PreviewPage: FC = () => {
           </header>
 
           {/* Main */}
-          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-6xl items-start justify-center px-6 py-10">
+          <main className="mx-auto flex min-h-[calc(100vh-104px)] max-w-6xl items-start justify-center px-6 pb-32 pt-24">
             <div className="w-full max-w-5xl">
               {/* Card */}
               <div className="rounded-[28px] border border-slate-200/60 bg-white/90 shadow-2xl shadow-slate-900/10 backdrop-blur">
@@ -191,25 +267,33 @@ export const PreviewPage: FC = () => {
                         )}
                       </div>
 
-                      {/* CTA Button */}
-                      <div className="mt-10">
-                        <FlowNavigation
-                          onBack={() => navigate("/")}
-                          onNext={() => {
-                            // TODO: implement mix logic
-                            console.log("Trộn ngay clicked");
-                          }}
-                          backLabel="Quay lại"
-                          nextLabel="Trộn ngay"
-                          subtitle="Xử lý 100% offline • Export .docx + .xlsx"
-                        />
-                      </div>
+                      {/* Spacer for fixed navigation */}
+                      <div className="h-10"></div>
                     </>
                   )}
                 </div>
               </div>
             </div>
           </main>
+
+          {/* Fixed Navigation */}
+          <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200/60 bg-white/90 shadow-2xl shadow-slate-900/20 backdrop-blur-md">
+            <div className="mx-auto max-w-6xl px-6">
+              <div className="max-w-5xl">
+                <div className="px-10 py-6">
+                  <FlowNavigation
+                    onBack={() => navigate("/")}
+                    onNext={() => {
+                      setShowConfirmModal(true);
+                    }}
+                    backLabel="Quay lại"
+                    nextLabel="Trộn ngay"
+                    subtitle="Xử lý 100% offline • Export .docx + .xlsx"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

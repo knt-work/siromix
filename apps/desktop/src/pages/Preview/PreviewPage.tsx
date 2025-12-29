@@ -7,32 +7,14 @@ import { ommlToMathml } from "../../lib/omml";
 import { ImageSegment } from "../../components/ImageSegment";
 import { FlowNavigation } from "../../components/FlowNavigation";
 import { AcademicCapIcon } from "@heroicons/react/24/outline";
-
-type Segment =
-  | { type: "Text"; text: string }
-  | { type: "Image"; asset_path: string }
-  | { type: "Math"; omml: string };
-
-type OptionItem = {
-  label: string;
-  locked: boolean;
-  content: Segment[];
-};
-
-type Question = {
-  number: number;
-  stem: Segment[];
-  options: OptionItem[];
-  correct_label: string;
-};
-
-type ParsedDoc = {
-  questions: Question[];
-};
+import { useMixStore, type ParsedDoc, type Segment } from "../../store/mixStore";
 
 export const PreviewPage: FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  
+  // Use Zustand store
+  const { parsedData: cachedParsedData, setParsedData } = useMixStore();
 
   const [parsed, setParsed] = useState<ParsedDoc | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -42,6 +24,16 @@ export const PreviewPage: FC = () => {
     if (!jobId) return;
 
     let isCancelled = false;
+    
+    // Check if we have cached data first
+    if (cachedParsedData) {
+      console.log("Using cached parsed data");
+      setParsed(cachedParsedData);
+      setLoading(false);
+      return;
+    }
+    
+    // No cache, fetch from backend
     setLoading(true);
     setError(null);
 
@@ -51,6 +43,8 @@ export const PreviewPage: FC = () => {
         console.log("Parsed doc:", doc);
         console.log("Number of questions:", doc.questions?.length);
         setParsed(doc);
+        // Save to store for future use
+        setParsedData(doc);
         setLoading(false);
       })
       .catch((err) => {
@@ -64,7 +58,7 @@ export const PreviewPage: FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [jobId]);
+  }, [jobId, cachedParsedData, setParsedData]);
 
   const renderSegment = (segment: Segment, key: number) => {
     switch (segment.type) {

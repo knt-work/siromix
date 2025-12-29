@@ -1,10 +1,11 @@
 // src/pages/MixStart/MixStartPage.tsx
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
 import { LoadingOverlay } from "../../components/LoadingOverlay";
 import { FlowNavigation } from "../../components/FlowNavigation";
 import { analyzeDocx } from "../../services/tauri/analyzeDocx";
+import { useMixStore } from "../../store/mixStore";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -15,18 +16,45 @@ import {
 
 export function MixStartPage() {
   const navigate = useNavigate();
+  
+  // Use Zustand store
+  const {
+    selectedFilePath,
+    jobId: cachedJobId,
+    setSelectedFile,
+    clearAnalysis,
+    setJobId,
+  } = useMixStore();
+  
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
 
+  // Restore file selection from store on mount
+  useEffect(() => {
+    if (selectedFilePath) {
+      setSourcePath(selectedFilePath);
+      setHasFile(true);
+    }
+  }, [selectedFilePath]);
+
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     setHasFile(!!file);
     // Trong Tauri, nên dùng dialog API để lấy đường dẫn tuyệt đối.
     // Trường hợp input file được dùng trong môi trường web thuần, ta chỉ có thể lấy `file.name`.
-    setSourcePath(file ? file.name : null);
+    const newPath = file ? file.name : null;
+    setSourcePath(newPath);
+    
+    // If selecting a different file, clear cached analysis
+    if (newPath && newPath !== selectedFilePath) {
+      clearAnalysis();
+    }
+    
+    // Save to store
+    setSelectedFile(newPath);
   };
 
   const handlePickFile = async () => {
@@ -39,6 +67,14 @@ export function MixStartPage() {
       if (typeof selected === "string") {
         setSourcePath(selected);
         setHasFile(true);
+        
+        // If selecting a different file, clear cached analysis
+        if (selected !== selectedFilePath) {
+          clearAnalysis();
+        }
+        
+        // Save to store
+        setSelectedFile(selected);
         return;
       }
 
@@ -69,6 +105,16 @@ export function MixStartPage() {
     setIsAnalyzing(true);
 
     try {
+      // Check if we already have a cached jobId for this file
+      if (cachedJobId && selectedFilePath === sourcePath) {
+        // Already analyzed, navigate directly to preview
+        console.log("Using cached analysis, jobId:", cachedJobId);
+        setIsAnalyzing(false);
+        navigate(`/preview/${cachedJobId}`);
+        return;
+      }
+      
+      // Need to analyze the file
       const jobId = crypto.randomUUID();
       const result = await analyzeDocx({ jobId, sourcePath });
       // Demo: tạm thời chỉ log ra console
@@ -76,6 +122,8 @@ export function MixStartPage() {
       console.log("analyze_docx result", result);
 
       if (result.ok) {
+        // Save jobId to store (parsedData will be set in PreviewPage)
+        setJobId(result.jobId);
         setIsAnalyzing(false);
         navigate(`/preview/${result.jobId}`);
         return;

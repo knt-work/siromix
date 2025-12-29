@@ -21,7 +21,8 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.0.2",
     "rtf.js": "^3.0.9",
-    "wmf": "^1.0.2"
+    "wmf": "^1.0.2",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",

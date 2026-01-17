@@ -1,7 +1,8 @@
 // src/store/mixStore.ts
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { MixedExam } from "../lib/mixAlgorithm";
+import { DEFAULT_NUM_VARIANTS, STORAGE_KEYS } from "../constants/exam";
+import type { MixedExam } from "../services/tauri/mixExams";
 
 // Types matching the ParsedDoc structure from PreviewPage
 type Segment =
@@ -69,7 +70,7 @@ export const useMixStore = create<MixState>()(
       parsedData: null,
       isAnalyzing: false,
       mixedExams: null,
-      numVariants: 4,
+      numVariants: DEFAULT_NUM_VARIANTS,
       
       // Actions
       setSelectedFile: (path) => set({ selectedFilePath: path }),
@@ -98,11 +99,11 @@ export const useMixStore = create<MixState>()(
           parsedData: null,
           isAnalyzing: false,
           mixedExams: null,
-          numVariants: 4,
+          numVariants: DEFAULT_NUM_VARIANTS,
         }),
     }),
     {
-      name: "siromix-mix-storage", // localStorage key
+      name: STORAGE_KEYS.MIX_STORE, // localStorage key
       // Only persist these fields
       partialize: (state) => ({
         selectedFilePath: state.selectedFilePath,

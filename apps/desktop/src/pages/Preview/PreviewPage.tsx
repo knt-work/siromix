@@ -2,14 +2,13 @@ import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { MathBlock } from "../../lib/mathjax";
-import { ommlToMathml } from "../../lib/omml";
-import { ImageSegment } from "../../components/ImageSegment";
 import { FlowNavigation } from "../../components/FlowNavigation";
 import { ProgressModal, type ProgressStage } from "../../components/ProgressModal";
+import { renderSegments } from "../../components/shared/SegmentRenderer";
 import { AcademicCapIcon, XMarkIcon, CheckIcon } from "@heroicons/react/24/outline";
-import { useMixStore, type ParsedDoc, type Segment } from "../../store/mixStore";
-import { mixExam } from "../../lib/mixAlgorithm";
+import { useMixStore, type ParsedDoc } from "../../store/mixStore";
+import { mixExams } from "../../services/tauri/mixExams";
+import { MIX_PROGRESS_STAGES } from "../../constants/exam";
 
 export const PreviewPage: FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
@@ -48,7 +47,6 @@ export const PreviewPage: FC = () => {
         console.log("Parsed doc:", doc);
         console.log("Number of questions:", doc.questions?.length);
         setParsed(doc);
-        // Save to store for future use
         setParsedData(doc);
         setLoading(false);
       })
@@ -72,43 +70,28 @@ export const PreviewPage: FC = () => {
     setShowProgress(true);
 
     try {
-      // Stage 1: Shuffling questions
-      setProgressStages([
-        { label: "Đảo câu hỏi", done: false, current: true },
-        { label: "Đảo đáp án", done: false },
-        { label: "Tạo mã đề", done: false },
-        { label: "Hoàn tất", done: false },
-      ]);
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      // Animate through progress stages
+      for (let i = 0; i < MIX_PROGRESS_STAGES.length; i++) {
+        const newStages = MIX_PROGRESS_STAGES.map((stage, idx) => ({
+          label: stage.label,
+          done: idx < i,
+          current: idx === i,
+        }));
+        setProgressStages(newStages);
+        await new Promise((resolve) => setTimeout(resolve, MIX_PROGRESS_STAGES[i].duration));
+      }
 
-      // Stage 2: Shuffling options
-      setProgressStages([
-        { label: "Đảo câu hỏi", done: true },
-        { label: "Đảo đáp án", done: false, current: true },
-        { label: "Tạo mã đề", done: false },
-        { label: "Hoàn tất", done: false },
-      ]);
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      // Call Rust backend to mix exams (much faster than JS)
+      const variants = await mixExams(parsed, numVariants);
 
-      // Stage 3: Generating exam codes
-      setProgressStages([
-        { label: "Đảo câu hỏi", done: true },
-        { label: "Đảo đáp án", done: true },
-        { label: "Tạo mã đề", done: false, current: true },
-        { label: "Hoàn tất", done: false },
-      ]);
-
-      // Run the mix algorithm
-      const variants = mixExam(parsed, numVariants);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-
-      // Stage 4: Complete
-      setProgressStages([
-        { label: "Đảo câu hỏi", done: true },
-        { label: "Đảo đáp án", done: true },
-        { label: "Tạo mã đề", done: true },
-        { label: "Hoàn tất", done: true, current: true },
-      ]);
+      // Mark final stage as complete
+      setProgressStages(
+        MIX_PROGRESS_STAGES.map((stage, idx) => ({
+          label: stage.label,
+          done: true,
+          current: idx === MIX_PROGRESS_STAGES.length - 1,
+        }))
+      );
 
       // Save to store
       setMixedExams(variants);
@@ -121,38 +104,7 @@ export const PreviewPage: FC = () => {
     } catch (error) {
       console.error("Mix error:", error);
       setShowProgress(false);
-      // TODO: Show error modal
-    }
-  };
-
-  const renderSegment = (segment: Segment, key: number) => {
-    switch (segment.type) {
-      case "Text":
-        return <span key={key}>{segment.text} </span>;
-      case "Image":
-        return (
-          <ImageSegment
-            key={key}
-            assetPath={segment.asset_path}
-            className=""
-          />
-        );
-      case "Math": {
-        const mathml = ommlToMathml(segment.omml);
-        if (!mathml || mathml.trim() === '') {
-          console.error("Failed to convert OMML to MathML:", segment.omml.substring(0, 100));
-          return <span key={key} className="text-red-500 italic">[Math]</span>;
-        }
-        return (
-          <MathBlock
-            key={key}
-            mathml={mathml}
-            className="mx-1 inline-block align-middle"
-          />
-        );
-      }
-      default:
-        return null;
+      // TODO: Show error modal with user-friendly message
     }
   };
 
@@ -167,9 +119,8 @@ export const PreviewPage: FC = () => {
 
       {/* Confirm Modal */}
       {showConfirmModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="relative mx-4 w-full max-w-lg rounded-3xl border border-slate-200/60 bg-white shadow-2xl shadow-slate-900/20">
-            {/* Close X Button */}
             <button
               onClick={() => setShowConfirmModal(false)}
               className="absolute right-4 top-4 rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
@@ -178,24 +129,20 @@ export const PreviewPage: FC = () => {
             </button>
 
             <div className="px-8 py-8">
-              {/* Icon */}
               <div className="mb-5 flex justify-center">
                 <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100">
                   <AcademicCapIcon className="h-8 w-8 text-violet-600" />
                 </div>
               </div>
 
-              {/* Title */}
               <h2 className="text-center text-2xl font-bold text-slate-900">
                 Xác nhận trộn đề
               </h2>
 
-              {/* Message */}
               <p className="mt-3 text-center text-sm text-slate-600">
                 Bạn có chắc chắn muốn thực hiện trộn đề ngay?
               </p>
 
-              {/* Mock Data */}
               <div className="mt-6 space-y-3 rounded-2xl bg-slate-50 p-5">
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-700">Tên kì thi:</span>
@@ -211,11 +158,10 @@ export const PreviewPage: FC = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-700">Số đề cần trộn:</span>
-                  <span className="font-semibold text-slate-900">4 đề</span>
+                  <span className="font-semibold text-slate-900">{numVariants} đề</span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="mt-8 flex items-center gap-3">
                 <button
                   onClick={() => setShowConfirmModal(false)}
@@ -237,7 +183,7 @@ export const PreviewPage: FC = () => {
         </div>
       )}
 
-      {/* Background giống design: xanh + sọc chéo */}
+      {/* Background */}
       <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_0%,rgba(255,255,255,0.9),rgba(255,255,255,0.35),rgba(255,255,255,0)_70%),linear-gradient(135deg,#8fd3ff_0%,#36b9ff_35%,#1aa7ff_55%,#1296f0_100%)]">
         <div className="min-h-screen bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.10)_0,rgba(255,255,255,0.10)_24px,rgba(255,255,255,0.03)_24px,rgba(255,255,255,0.03)_52px)]">
           {/* Top bar */}
@@ -279,9 +225,10 @@ export const PreviewPage: FC = () => {
 
                   {!loading && !error && parsed && (
                     <>
+                      {/* Question List - Temporarily disabled virtualization for debugging */}
                       <div className="mt-8 space-y-6">
                         {parsed.questions && parsed.questions.length > 0 ? (
-                          parsed.questions.map((q) => (
+                          parsed.questions.map((q, idx) => (
                             <div
                               key={q.number}
                               className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
@@ -291,7 +238,7 @@ export const PreviewPage: FC = () => {
                                   Câu {q.number}.
                                 </div>
                                 <div className="flex-1 text-sm text-slate-800">
-                                  {q.stem.map((seg, idx) => renderSegment(seg, idx))}
+                                  {renderSegments(q.stem)}
                                 </div>
                               </div>
 
@@ -303,7 +250,9 @@ export const PreviewPage: FC = () => {
                                     <div
                                       key={opt.label}
                                       className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
-                                        isCorrect ? "bg-emerald-50 font-semibold text-emerald-800" : ""
+                                        isCorrect
+                                          ? "bg-emerald-50 font-semibold text-emerald-800"
+                                          : ""
                                       }`}
                                     >
                                       <div className="mt-0.5 w-6 shrink-0 text-slate-700">
@@ -315,9 +264,7 @@ export const PreviewPage: FC = () => {
                                             (Trống)
                                           </span>
                                         ) : (
-                                          opt.content.map((seg, idx) =>
-                                            renderSegment(seg, idx),
-                                          )
+                                          renderSegments(opt.content)
                                         )}
                                       </div>
                                     </div>
@@ -329,7 +276,7 @@ export const PreviewPage: FC = () => {
                         ) : (
                           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
                             <p className="text-sm text-slate-600">
-                              Không tìm thấy câu hỏi nào trong file. Parsed doc: {JSON.stringify(parsed)}
+                              Không tìm thấy câu hỏi nào trong file.
                             </p>
                           </div>
                         )}

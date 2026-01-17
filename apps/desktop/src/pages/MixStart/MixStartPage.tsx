@@ -4,8 +4,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
 import { LoadingOverlay } from "../../components/LoadingOverlay";
 import { FlowNavigation } from "../../components/FlowNavigation";
-import { analyzeDocx } from "../../services/tauri/analyzeDocx";
+import { useExamAnalysis } from "../../hooks/useExamAnalysis";
 import { useMixStore } from "../../store/mixStore";
+import { ERROR_CODES, ERROR_MESSAGES } from "../../constants/exam";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -23,14 +24,23 @@ export function MixStartPage() {
     jobId: cachedJobId,
     setSelectedFile,
     clearAnalysis,
-    setJobId,
   } = useMixStore();
+  
+  // Use custom hook for analysis
+  const { analyze, isAnalyzing, error: analysisError, clearError } = useExamAnalysis();
   
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+
+  // Show analysis errors in modal
+  useEffect(() => {
+    if (analysisError) {
+      setErrorMessage(analysisError);
+      setIsErrorModalOpen(true);
+    }
+  }, [analysisError]);
 
   // Restore file selection from store on mount
   useEffect(() => {
@@ -91,54 +101,32 @@ export function MixStartPage() {
     event.preventDefault();
 
     if (!hasFile) {
-      setErrorMessage("Vui lòng chọn file .docx trước khi tiếp tục.");
+      setErrorMessage(ERROR_MESSAGES[ERROR_CODES.NO_FILE_SELECTED]);
       setIsErrorModalOpen(true);
       return;
     }
 
     if (!sourcePath) {
-      setErrorMessage("Không lấy được đường dẫn file nguồn từ input.");
+      setErrorMessage(ERROR_MESSAGES[ERROR_CODES.INVALID_FILE_PATH]);
       setIsErrorModalOpen(true);
       return;
     }
 
-    setIsAnalyzing(true);
-
-    try {
-      // Check if we already have a cached jobId for this file
-      if (cachedJobId && selectedFilePath === sourcePath) {
-        // Already analyzed, navigate directly to preview
-        console.log("Using cached analysis, jobId:", cachedJobId);
-        setIsAnalyzing(false);
-        navigate(`/preview/${cachedJobId}`);
-        return;
-      }
-      
-      // Need to analyze the file
-      const jobId = crypto.randomUUID();
-      const result = await analyzeDocx({ jobId, sourcePath });
-      // Demo: tạm thời chỉ log ra console
-      // eslint-disable-next-line no-console
-      console.log("analyze_docx result", result);
-
-      if (result.ok) {
-        // Save jobId to store (parsedData will be set in PreviewPage)
-        setJobId(result.jobId);
-        setIsAnalyzing(false);
-        navigate(`/preview/${result.jobId}`);
-        return;
-      }
-
-      setIsAnalyzing(false);
-      setErrorMessage("Phân tích đề không thành công.");
-      setIsErrorModalOpen(true);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error ?? "Unknown error");
-      setIsAnalyzing(false);
-      setErrorMessage(message);
-      setIsErrorModalOpen(true);
+    // Check if we already have a cached jobId for this file
+    if (cachedJobId && selectedFilePath === sourcePath) {
+      // Already analyzed, navigate directly to preview
+      console.log("Using cached analysis, jobId:", cachedJobId);
+      navigate(`/preview/${cachedJobId}`);
+      return;
     }
+
+    // Need to analyze the file using custom hook
+    const result = await analyze(sourcePath);
+
+    if (result.success && result.jobId) {
+      navigate(`/preview/${result.jobId}`);
+    }
+    // Errors are handled by the hook and shown via useEffect
   };
 
   return (

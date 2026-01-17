@@ -29,4 +29,5 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 rust_xlsxwriter = "0.76"
 uuid = { version = "1", features = ["v4"] }
 image = "0.24"
+rand = { version = "0.8", features = ["std_rng"] }
 

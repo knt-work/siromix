@@ -1,7 +1,14 @@
 // lib/mixAlgorithm.ts
+/**
+ * DEPRECATED: Mix logic has been moved to Rust (src-tauri/src/docx/mixer.rs)
+ * This file is kept for type definitions and backward compatibility.
+ * Use services/tauri/mixExams.ts instead for actual mixing operations.
+ */
+
 import type { ParsedDoc, Question, OptionItem } from "../store/mixStore";
 
 /**
+ * @deprecated Use MixedExam from services/tauri/mixExams.ts
  * Mixed exam variant with unique code
  */
 export type MixedExam = {
@@ -10,6 +17,7 @@ export type MixedExam = {
 };
 
 /**
+ * @deprecated Use MixedQuestion from services/tauri/mixExams.ts
  * Question in a mixed exam
  */
 export type MixedQuestion = {
@@ -21,6 +29,7 @@ export type MixedQuestion = {
 };
 
 /**
+ * @deprecated Use MixedOption from services/tauri/mixExams.ts
  * Option after shuffling
  */
 export type MixedOption = {
@@ -30,6 +39,7 @@ export type MixedOption = {
 };
 
 /**
+ * @deprecated Moved to Rust backend
  * Generate a random 3-digit exam code (100-999)
  */
 export function generateExamCode(): string {
@@ -37,6 +47,7 @@ export function generateExamCode(): string {
 }
 
 /**
+ * @deprecated Moved to Rust backend
  * Generate unique exam codes
  */
 export function generateExamCodes(count: number): string[] {
@@ -48,6 +59,7 @@ export function generateExamCodes(count: number): string[] {
 }
 
 /**
+ * @deprecated Moved to Rust backend
  * Seeded random number generator for reproducible shuffles
  * Uses Linear Congruential Generator algorithm
  */
@@ -61,6 +73,7 @@ export function seededRandom(seed: number): () => number {
 }
 
 /**
+ * @deprecated Moved to Rust backend
  * Fisher-Yates shuffle with seeded random
  */
 export function shuffleArray<T>(array: T[], seed: number): T[] {
@@ -76,6 +89,7 @@ export function shuffleArray<T>(array: T[], seed: number): T[] {
 }
 
 /**
+ * @deprecated Moved to Rust backend
  * Shuffle options within a question and return mapping
  */
 function shuffleOptions(
@@ -101,6 +115,7 @@ function shuffleOptions(
 }
 
 /**
+ * @deprecated Use mixExams() from services/tauri/mixExams.ts instead
  * Main mix function - creates multiple exam variants
  * 
  * @param parsedDoc - Parsed document with questions
@@ -111,6 +126,8 @@ export function mixExam(
   parsedDoc: ParsedDoc,
   numVariants: number = 4
 ): MixedExam[] {
+  console.warn('mixExam() is deprecated. Use mixExams() from services/tauri/mixExams.ts for better performance.');
+  
   const variants: MixedExam[] = [];
   const examCodes = generateExamCodes(numVariants);
 

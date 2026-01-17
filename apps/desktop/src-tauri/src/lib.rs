@@ -165,6 +165,27 @@ fn get_parsed(
     Ok(parsed)
 }
 
+/// Mix exams - shuffle questions and options to create exam variants
+/// This replaces the frontend TypeScript implementation for better performance
+#[tauri::command]
+fn mix_exams(
+    parsed_doc: ParsedDoc,
+    num_variants: u32,
+) -> Result<Vec<crate::docx::mixer::MixedExam>, String> {
+    use crate::docx::mixer;
+
+    if num_variants == 0 {
+        return Err("Number of variants must be greater than 0".to_string());
+    }
+
+    if parsed_doc.questions.is_empty() {
+        return Err("No questions found in parsed document".to_string());
+    }
+
+    let variants = mixer::mix_exams(parsed_doc.questions, num_variants as usize);
+    Ok(variants)
+}
+
 /// Export mixed exams to DOCX and XLSX files
 #[tauri::command]
 async fn export_mixed_exams(
@@ -265,6 +286,7 @@ pub fn run() {
             greet,
             analyze_docx,
             get_parsed,
+            mix_exams,
             export_mixed_exams
         ])
         .run(tauri::generate_context!())

@@ -208,7 +208,77 @@ pub fn parse_document_xml_to_parsed_doc(
 /// - <w:drawing>...</w:drawing> or <w:object>...</w:object> → Segment::Image
 ///   Images (including OLE Equation objects with VML/v:imagedata) are mapped
 ///   to extracted media assets purely by global order of appearance.
-///
+
+/// Extract ALL text from ALL <w:t> elements within a single <w:r> run block.
+/// This handles cases where Word splits text into multiple <w:t> elements.
+/// 
+/// Special handling for `<w:t xml:space="preserve">` which indicates that
+/// whitespace should be preserved. If the content is empty but has this
+/// attribute, it represents a space character.
+fn extract_all_text_from_run(run_block: &str) -> String {
+    let mut result = String::new();
+    let mut cursor = 0;
+
+    loop {
+        // Find next <w:t> or <w:t ...>
+        let start_rel = match run_block[cursor..].find("<w:t") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let start = cursor + start_rel;
+        
+        // Make sure it's actually <w:t> or <w:t ...>, not <w:tab> etc.
+        let after_wt = start + "<w:t".len();
+        if after_wt < run_block.len() {
+            let next_char = &run_block[after_wt..after_wt + 1];
+            if next_char != ">" && next_char != " " {
+                // It's <w:tab> or similar, skip
+                cursor = after_wt;
+                continue;
+            }
+        }
+
+        // Find end of opening tag
+        let gt_rel = match run_block[start..].find('>') {
+            Some(idx) => idx,
+            None => break,
+        };
+        let tag_content = &run_block[start..start + gt_rel];
+        let content_start = start + gt_rel + 1;
+
+        // Find closing </w:t>
+        let end_tag_rel = match run_block[content_start..].find("</w:t>") {
+            Some(idx) => idx,
+            None => break,
+        };
+        let content_end = content_start + end_tag_rel;
+
+        // Extract and decode text
+        let fragment = &run_block[content_start..content_end];
+        
+        // Check if xml:space="preserve" is present
+        let has_preserve_space = tag_content.contains("xml:space=\"preserve\"") 
+            || tag_content.contains("xml:space='preserve'");
+        
+        if fragment.is_empty() && has_preserve_space {
+            // Empty <w:t xml:space="preserve"></w:t> represents a space
+            result.push(' ');
+        } else {
+            let decoded = fragment
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&apos;", "'")
+                .replace("&quot;", "\"");
+            result.push_str(&decoded);
+        }
+        
+        cursor = content_end + "</w:t>".len();
+    }
+
+    result
+}
+
 /// Helper function to find the start of a <w:r> tag (not <w:rPr>)
 fn find_run_start(block: &str, before_pos: usize) -> usize {
     let mut search_end = before_pos;
@@ -347,42 +417,60 @@ fn extract_segments_from_paragraph(
 
         match element_type {
             "text" => {
-                // Find the containing <w:r> block to preserve formatting
-                let run_start = find_run_start(block, start);
+                // Find the <w:r> that CONTAINS this <w:t> by searching BACKWARDS
+                // But we need to be careful not to find a run that was already processed
+                // 
+                // Better approach: Find the enclosing </w:r> FORWARD from <w:t>
+                // and then find the matching <w:r> that starts AFTER cursor
                 
-                // Find end of <w:t> tag
+                // First, find where this <w:t> ends
                 let gt_rel = match block[start..].find('>') {
                     Some(idx) => idx,
                     None => break,
                 };
                 let content_start = start + gt_rel + 1;
-
+                
                 let end_tag_rel = match block[content_start..].find("</w:t>") {
                     Some(idx) => idx,
                     None => break,
                 };
-                let content_end = content_start + end_tag_rel;
+                let wt_end = content_start + end_tag_rel + "</w:t>".len();
                 
-                // Find end of </w:r> tag
-                let run_end = match block[content_end..].find("</w:r>") {
-                    Some(idx) => content_end + idx + "</w:r>".len(),
-                    None => content_end + "</w:t>".len(),
+                // Find the </w:r> that closes this run (forward from <w:t>)
+                let run_end = match block[wt_end..].find("</w:r>") {
+                    Some(idx) => wt_end + idx + "</w:r>".len(),
+                    None => wt_end,
                 };
-
-                // Extract plain text for display
-                let fragment = &block[content_start..content_end];
-                let text_fragment = fragment
-                    .replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&amp;", "&");
+                
+                // Find the <w:r> that starts this run - search backwards from <w:t> position
+                // but ONLY within the range [cursor..start] to avoid finding runs before cursor
+                let search_region = &block[cursor..start];
+                let run_start = if let Some(r_idx) = search_region.rfind("<w:r") {
+                    // Verify it's <w:r> or <w:r ...>, not <w:rPr>
+                    let abs_idx = cursor + r_idx;
+                    let check_pos = abs_idx + "<w:r".len();
+                    if check_pos < block.len() {
+                        let ch = &block[check_pos..check_pos + 1];
+                        if ch == ">" || ch == " " {
+                            abs_idx
+                        } else {
+                            start // Fallback to <w:t> position
+                        }
+                    } else {
+                        abs_idx
+                    }
+                } else {
+                    start // No <w:r> found after cursor, use <w:t> position
+                };
+                
+                // Extract ALL text from this run
+                let run_block = &block[run_start..run_end];
+                let text_fragment = extract_all_text_from_run(run_block);
 
                 // Capture full <w:r>...</w:r> block with formatting
-                let raw_xml = block[run_start..run_end].to_string();
+                let raw_xml = run_block.to_string();
 
-                // Accumulate text and XML for this run
-                if !pending_text.is_empty() {
-                    pending_text.push(' ');
-                }
+                // Accumulate text directly without adding extra spaces
                 pending_text.push_str(&text_fragment);
                 pending_raw_xml.push_str(&raw_xml);
                 
@@ -402,9 +490,6 @@ fn extract_segments_from_paragraph(
                     pending_raw_xml.clear();
                 }
 
-                // Find the containing <w:r> block (math is usually wrapped in <w:r><m:oMathPara><m:oMath>...)
-                let run_start = find_run_start(block, start);
-
                 // Extract full <m:oMath>...</m:oMath> block (preserve OMML)
                 let end_rel = match block[start..].find("</m:oMath>") {
                     Some(idx) => idx + "</m:oMath>".len(),
@@ -413,19 +498,38 @@ fn extract_segments_from_paragraph(
                 let end = start + end_rel;
                 let omml = block[start..end].to_string();
 
-                // Find end of </w:r> after the math
-                let run_end = match block[end..].find("</w:r>") {
-                    Some(idx) => end + idx + "</w:r>".len(),
-                    None => end,
+                // For rawXml, we only include the <m:oMath>...</m:oMath> itself.
+                // DO NOT include text runs after math - they should be processed as separate text segments.
+                // This prevents "eating" text that belongs to the next segment.
+                //
+                // For the leading <w:r> (space before math), we can include it if it's within [cursor..start]
+                let search_region = &block[cursor..start];
+                let run_start = if let Some(r_idx) = search_region.rfind("<w:r") {
+                    let abs_idx = cursor + r_idx;
+                    let check_pos = abs_idx + "<w:r".len();
+                    if check_pos < block.len() {
+                        let ch = &block[check_pos..check_pos + 1];
+                        if ch == ">" || ch == " " {
+                            abs_idx
+                        } else {
+                            start
+                        }
+                    } else {
+                        abs_idx
+                    }
+                } else {
+                    start
                 };
 
-                let raw_xml = block[run_start..run_end].to_string();
+                let raw_xml = block[run_start..end].to_string();
 
                 segments.push(Segment::Math { 
                     omml,
                     raw_xml,
                 });
-                cursor = run_end;
+                
+                // Move cursor to just after </m:oMath> - let text runs after be processed normally
+                cursor = end;
             }
             "drawing" => {
                 // Flush pending text before adding image
@@ -583,89 +687,69 @@ fn extract_segments_from_paragraph(
 }
 
 /// Parse image dimensions from XML (either <wp:extent> for drawings or <v:shape> for objects)
+/// 
+/// This function tries multiple sources for image dimensions in order of preference:
+/// 1. <wp:extent cx="..." cy="..."/> - Main extent in WordprocessingDrawing
+/// 2. <a:ext cx="..." cy="..."/> inside <a:xfrm> - Transform extent in DrawingML
+/// 3. <v:shape style="width:...;height:..."/> - VML shape for OLE objects
+/// 
+/// The dimensions are returned in EMUs (English Metric Units).
+/// 1 inch = 914400 EMUs, 1 pt = 12700 EMUs, 1 cm = 360000 EMUs
 fn parse_image_dimensions(xml: &str) -> (i64, i64) {
-    // Try to find <wp:extent cx="..." cy="..."/> for modern drawings
+    // Priority 1: Try to find <wp:extent cx="..." cy="..."/> for modern drawings
+    // This is the "desired" display size set by the user
     if let Some(extent_start) = xml.find("<wp:extent") {
         if let Some(extent_end) = xml[extent_start..].find("/>") {
             let extent_block = &xml[extent_start..extent_start + extent_end];
-            
-            // Parse cx (width)
-            let width = if let Some(cx_start) = extent_block.find("cx=\"") {
-                let cx_val_start = cx_start + 4;
-                if let Some(cx_end) = extent_block[cx_val_start..].find('"') {
-                    extent_block[cx_val_start..cx_val_start + cx_end]
-                        .parse::<i64>()
-                        .unwrap_or(0)
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
-            
-            // Parse cy (height)
-            let height = if let Some(cy_start) = extent_block.find("cy=\"") {
-                let cy_val_start = cy_start + 4;
-                if let Some(cy_end) = extent_block[cy_val_start..].find('"') {
-                    extent_block[cy_val_start..cy_val_start + cy_end]
-                        .parse::<i64>()
-                        .unwrap_or(0)
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
-            
-            if width > 0 && height > 0 {
-                return (width, height);
+            let dims = parse_cx_cy_attributes(extent_block);
+            if dims.0 > 0 && dims.1 > 0 {
+                return dims;
             }
         }
     }
     
-    // Try to parse from <v:shape style="...width:...;height:..."/> for OLE objects
+    // Priority 2: Try <a:ext> inside <a:xfrm> (DrawingML transform)
+    // This is often the actual rendered size
+    if let Some(xfrm_start) = xml.find("<a:xfrm") {
+        if let Some(xfrm_end_rel) = xml[xfrm_start..].find("</a:xfrm>") {
+            let xfrm_block = &xml[xfrm_start..xfrm_start + xfrm_end_rel];
+            if let Some(ext_start) = xfrm_block.find("<a:ext") {
+                if let Some(ext_end) = xfrm_block[ext_start..].find("/>") {
+                    let ext_block = &xfrm_block[ext_start..ext_start + ext_end];
+                    let dims = parse_cx_cy_attributes(ext_block);
+                    if dims.0 > 0 && dims.1 > 0 {
+                        return dims;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Priority 3: Try <pic:spPr> -> <a:xfrm> -> <a:ext> (Picture shape properties)
+    if let Some(sppr_start) = xml.find("<pic:spPr") {
+        if let Some(sppr_end_rel) = xml[sppr_start..].find("</pic:spPr>") {
+            let sppr_block = &xml[sppr_start..sppr_start + sppr_end_rel];
+            if let Some(ext_start) = sppr_block.find("<a:ext") {
+                if let Some(ext_end) = sppr_block[ext_start..].find("/>") {
+                    let ext_block = &sppr_block[ext_start..ext_start + ext_end];
+                    let dims = parse_cx_cy_attributes(ext_block);
+                    if dims.0 > 0 && dims.1 > 0 {
+                        return dims;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Priority 4: Try to parse from <v:shape style="...width:...;height:..."/> for OLE objects
     if let Some(shape_start) = xml.find("<v:shape") {
         if let Some(style_start) = xml[shape_start..].find("style=\"") {
             let style_val_start = shape_start + style_start + 7;
             if let Some(style_end) = xml[style_val_start..].find('"') {
                 let style_block = &xml[style_val_start..style_val_start + style_end];
-                
-                // Parse width (in pt, need to convert to EMU)
-                let width = if let Some(w_start) = style_block.find("width:") {
-                    let w_val_start = w_start + 6;
-                    if let Some(w_end) = style_block[w_val_start..].find("pt") {
-                        let w_str = &style_block[w_val_start..w_val_start + w_end];
-                        if let Ok(w_pt) = w_str.parse::<f64>() {
-                            (w_pt * 12700.0) as i64 // 1 pt = 12700 EMUs
-                        } else {
-                            0
-                        }
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                
-                // Parse height (in pt, need to convert to EMU)
-                let height = if let Some(h_start) = style_block.find("height:") {
-                    let h_val_start = h_start + 7;
-                    if let Some(h_end) = style_block[h_val_start..].find("pt") {
-                        let h_str = &style_block[h_val_start..h_val_start + h_end];
-                        if let Ok(h_pt) = h_str.parse::<f64>() {
-                            (h_pt * 12700.0) as i64 // 1 pt = 12700 EMUs
-                        } else {
-                            0
-                        }
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                
-                if width > 0 && height > 0 {
-                    return (width, height);
+                let dims = parse_vml_style_dimensions(style_block);
+                if dims.0 > 0 && dims.1 > 0 {
+                    return dims;
                 }
             }
         }
@@ -675,28 +759,109 @@ fn parse_image_dimensions(xml: &str) -> (i64, i64) {
     (914400, 914400)
 }
 
+/// Parse cx and cy attributes from an XML element string like `<wp:extent cx="123" cy="456"`
+fn parse_cx_cy_attributes(element: &str) -> (i64, i64) {
+    let width = if let Some(cx_start) = element.find("cx=\"") {
+        let cx_val_start = cx_start + 4;
+        if let Some(cx_end) = element[cx_val_start..].find('"') {
+            element[cx_val_start..cx_val_start + cx_end]
+                .parse::<i64>()
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    
+    let height = if let Some(cy_start) = element.find("cy=\"") {
+        let cy_val_start = cy_start + 4;
+        if let Some(cy_end) = element[cy_val_start..].find('"') {
+            element[cy_val_start..cy_val_start + cy_end]
+                .parse::<i64>()
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    
+    (width, height)
+}
+
+/// Parse width and height from VML style string like "width:72pt;height:48pt"
+/// Supports units: pt (points), in (inches), cm (centimeters), mm (millimeters)
+fn parse_vml_style_dimensions(style: &str) -> (i64, i64) {
+    let width = parse_vml_dimension(style, "width:");
+    let height = parse_vml_dimension(style, "height:");
+    (width, height)
+}
+
+/// Parse a single dimension value from VML style string
+fn parse_vml_dimension(style: &str, prefix: &str) -> i64 {
+    if let Some(start) = style.find(prefix) {
+        let val_start = start + prefix.len();
+        let remaining = &style[val_start..];
+        
+        // Find the end of the value (next ; or end of string)
+        let val_end = remaining.find(';').unwrap_or(remaining.len());
+        let value_str = remaining[..val_end].trim();
+        
+        // Try different units
+        if let Some(num_end) = value_str.find("pt") {
+            if let Ok(val) = value_str[..num_end].trim().parse::<f64>() {
+                return (val * 12700.0) as i64; // 1 pt = 12700 EMUs
+            }
+        } else if let Some(num_end) = value_str.find("in") {
+            if let Ok(val) = value_str[..num_end].trim().parse::<f64>() {
+                return (val * 914400.0) as i64; // 1 inch = 914400 EMUs
+            }
+        } else if let Some(num_end) = value_str.find("cm") {
+            if let Ok(val) = value_str[..num_end].trim().parse::<f64>() {
+                return (val * 360000.0) as i64; // 1 cm = 360000 EMUs
+            }
+        } else if let Some(num_end) = value_str.find("mm") {
+            if let Ok(val) = value_str[..num_end].trim().parse::<f64>() {
+                return (val * 36000.0) as i64; // 1 mm = 36000 EMUs
+            }
+        } else if let Some(num_end) = value_str.find("px") {
+            if let Ok(val) = value_str[..num_end].trim().parse::<f64>() {
+                return (val * 9525.0) as i64; // 1 px = 9525 EMUs (at 96 DPI)
+            }
+        }
+    }
+    0
+}
+
 /// Convert segments to plain text for regex pattern matching.
 ///
 /// Used to detect question/option prefixes while preserving segment structure.
+/// Text segments are concatenated directly (no extra spaces added between them).
 /// Math segments are represented as single space (so they don't interfere with text matching).
 fn segments_to_plain_text(segments: &[Segment]) -> String {
     let mut result = String::new();
     for seg in segments {
         match seg {
             Segment::Text { text, .. } => {
-                if !result.is_empty() && !result.ends_with(' ') {
-                    result.push(' ');
-                }
+                // Concatenate text directly without adding extra spaces
+                // The text already contains proper spacing from the DOCX
                 result.push_str(text);
             }
             Segment::Math { .. } => {
                 // Represent math as a placeholder space for regex purposes
+                // Add space only if needed to separate from previous content
                 if !result.is_empty() && !result.ends_with(' ') {
                     result.push(' ');
                 }
+                result.push(' '); // Placeholder for math
             }
             Segment::Image { .. } => {
                 // Images don't contribute to text matching
+                // But add space if needed to avoid words sticking together
+                if !result.is_empty() && !result.ends_with(' ') {
+                    result.push(' ');
+                }
             }
         }
     }
@@ -711,6 +876,9 @@ fn segments_to_plain_text(segments: &[Segment]) -> String {
 /// # Arguments
 /// * `segments` - Original segments from paragraph
 /// * `prefix_len` - Number of characters to skip (from plain text representation)
+///
+/// Note: The prefix_len corresponds to the character count from segments_to_plain_text(),
+/// where text segments are concatenated directly without extra spaces.
 fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Segment> {
     let mut result = Vec::new();
     let mut chars_skipped = 0;
@@ -721,13 +889,16 @@ fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Seg
                 if chars_skipped >= prefix_len {
                     // Already skipped enough, keep this segment
                     result.push(seg.clone());
-                } else if chars_skipped + text.len() > prefix_len {
+                } else if chars_skipped + text.chars().count() > prefix_len {
                     // Prefix ends in the middle of this text segment
+                    // Use char indices for proper Unicode handling
                     let skip_in_this = prefix_len - chars_skipped;
-                    let remaining = text[skip_in_this..].trim_start().to_string();
+                    let char_boundary: usize = text.char_indices()
+                        .nth(skip_in_this)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(text.len());
+                    let remaining = text[char_boundary..].trim_start().to_string();
                     if !remaining.is_empty() {
-                        // Note: raw_xml trimming is complex, for now keep original
-                        // TODO: Properly trim raw_xml to match trimmed text
                         result.push(Segment::Text { 
                             text: remaining,
                             raw_xml: raw_xml.clone(),
@@ -736,21 +907,25 @@ fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Seg
                     chars_skipped = prefix_len;
                 } else {
                     // This entire text segment is part of the prefix, skip it
-                    chars_skipped += text.len() + 1; // +1 for space added in plain text
+                    // Count actual characters (not bytes) for proper Unicode handling
+                    chars_skipped += text.chars().count();
                 }
             }
             Segment::Math { .. } => {
-                // Math occupies 1 space in plain text
+                // Math occupies 2 spaces in plain text (one before, one placeholder)
+                // as per segments_to_plain_text logic
+                if chars_skipped >= prefix_len {
+                    result.push(seg.clone());
+                } else {
+                    chars_skipped += 2;
+                }
+            }
+            Segment::Image { .. } => {
+                // Images occupy 1 space in plain text (separator space)
                 if chars_skipped >= prefix_len {
                     result.push(seg.clone());
                 } else {
                     chars_skipped += 1;
-                }
-            }
-            Segment::Image { .. } => {
-                // Images don't occupy space in plain text
-                if chars_skipped >= prefix_len {
-                    result.push(seg.clone());
                 }
             }
         }
@@ -763,6 +938,9 @@ fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Seg
 ///
 /// Used by styling-aware functions (like collect_labeled_option_runs)
 /// that need plain text for pattern matching while preserving run boundaries.
+/// 
+/// Handles `xml:space="preserve"` attribute - empty elements with this
+/// attribute represent a space character.
 fn extract_text_from_w_p(block: &str) -> String {
     let mut result = String::new();
     let mut cursor = 0;
@@ -773,11 +951,23 @@ fn extract_text_from_w_p(block: &str) -> String {
             None => break,
         };
         let start = cursor + start_rel;
+        
+        // Skip <w:tab> and similar
+        let after_wt = start + "<w:t".len();
+        if after_wt < block.len() {
+            let check_end = (after_wt + 1).min(block.len());
+            let next_char = &block[after_wt..check_end];
+            if !next_char.is_empty() && next_char != ">" && next_char != " " {
+                cursor = after_wt;
+                continue;
+            }
+        }
 
         let gt_rel = match block[start..].find('>') {
             Some(idx) => idx,
             None => break,
         };
+        let tag_content = &block[start..start + gt_rel];
         let content_start = start + gt_rel + 1;
 
         let end_tag_rel = match block[content_start..].find("</w:t>") {
@@ -787,15 +977,23 @@ fn extract_text_from_w_p(block: &str) -> String {
         let content_end = content_start + end_tag_rel;
 
         let fragment = &block[content_start..content_end];
-        let fragment = fragment
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&");
-
-        if !result.is_empty() {
+        
+        // Check if xml:space="preserve" is present
+        let has_preserve_space = tag_content.contains("xml:space=\"preserve\"") 
+            || tag_content.contains("xml:space='preserve'");
+        
+        if fragment.is_empty() && has_preserve_space {
+            // Empty <w:t xml:space="preserve"></w:t> represents a space
             result.push(' ');
+        } else {
+            let decoded = fragment
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&apos;", "'")
+                .replace("&quot;", "\"");
+            result.push_str(&decoded);
         }
-        result.push_str(&fragment);
 
         cursor = content_end + "</w:t>".len();
     }

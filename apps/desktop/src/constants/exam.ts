@@ -89,3 +89,8 @@ export const DEFAULT_EXAM_METADATA = {
   subject: "",
   durationMinutes: DEFAULT_DURATION,
 } as const;
+
+/**
+ * Default exam codes for 4 variants
+ */
+export const DEFAULT_EXAM_CODES = ["132", "209", "357", "485"] as const;

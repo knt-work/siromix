@@ -63,7 +63,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       // Default fallback UI
       return (
-        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-red-50 to-orange-50 p-6">
+        <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-red-50 to-orange-50 p-6">
           <div className="w-full max-w-2xl rounded-3xl border border-red-200 bg-white p-8 shadow-2xl">
             {/* Error Icon */}
             <div className="mb-6 flex justify-center">
@@ -83,7 +83,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
 
             {/* Error Details (dev mode) */}
-            {process.env.NODE_ENV === "development" && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <div className="mb-6 rounded-2xl bg-red-50 p-4">
                 <h2 className="mb-2 text-sm font-semibold text-red-800">
                   Chi tiết lỗi:

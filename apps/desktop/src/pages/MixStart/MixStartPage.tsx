@@ -6,7 +6,8 @@ import { LoadingOverlay } from "../../components/LoadingOverlay";
 import { FlowNavigation } from "../../components/FlowNavigation";
 import { useExamAnalysis } from "../../hooks/useExamAnalysis";
 import { useMixStore } from "../../store/mixStore";
-import { ERROR_CODES, ERROR_MESSAGES } from "../../constants/exam";
+import type { ExamMetadata } from "../../store/mixStore";
+import { ERROR_CODES, ERROR_MESSAGES, DEFAULT_EXAM_CODES, DEFAULT_DURATION, DEFAULT_NUM_VARIANTS } from "../../constants/exam";
 import {
   AcademicCapIcon,
   ClockIcon,
@@ -24,15 +25,48 @@ export function MixStartPage() {
     jobId: cachedJobId,
     setSelectedFile,
     clearAnalysis,
+    setExamMetadata,
+    examMetadata: cachedMetadata,
   } = useMixStore();
   
   // Use custom hook for analysis
-  const { analyze, isAnalyzing, error: analysisError, clearError } = useExamAnalysis();
+  const { analyze, isAnalyzing, error: analysisError } = useExamAnalysis();
   
   const [hasFile, setHasFile] = useState(false);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+
+  // Form state
+  const [examName, setExamName] = useState(cachedMetadata?.examName || "");
+  const [subject, setSubject] = useState(cachedMetadata?.subject || "");
+  const [gradeLevel, setGradeLevel] = useState(cachedMetadata?.gradeLevel || "");
+  const [duration, setDuration] = useState(String(cachedMetadata?.durationMinutes || DEFAULT_DURATION));
+  const [schoolName, setSchoolName] = useState(cachedMetadata?.schoolName || "");
+  const [numVariants, setNumVariants] = useState(String(cachedMetadata?.numVariants || DEFAULT_NUM_VARIANTS));
+  const [examCodes, setExamCodes] = useState<string[]>(
+    cachedMetadata?.customExamCodes || DEFAULT_EXAM_CODES.slice(0, DEFAULT_NUM_VARIANTS)
+  );
+
+  // Update exam codes array when numVariants changes
+  useEffect(() => {
+    const parsedNumVariants = parseInt(numVariants, 10);
+    if (isNaN(parsedNumVariants)) return;
+    
+    if (parsedNumVariants !== examCodes.length) {
+      const newCodes = [...examCodes];
+      if (parsedNumVariants > examCodes.length) {
+        // Add more codes
+        for (let i = examCodes.length; i < parsedNumVariants; i++) {
+          newCodes.push(DEFAULT_EXAM_CODES[i] || String(100 + i));
+        }
+      } else {
+        // Remove excess codes
+        newCodes.length = parsedNumVariants;
+      }
+      setExamCodes(newCodes);
+    }
+  }, [numVariants, examCodes]);
 
   // Show analysis errors in modal
   useEffect(() => {
@@ -85,20 +119,83 @@ export function MixStartPage() {
         
         // Save to store
         setSelectedFile(selected);
-        return;
       }
-
-      // User bấm Hủy: không làm gì, coi như chưa chọn file
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error ?? "Unknown error");
-      setErrorMessage(message);
-      setIsErrorModalOpen(true);
+      console.error("Failed to pick file:", error);
     }
+  };
+
+  const validateAndSaveMetadata = () => {
+    // Validate mandatory fields
+    if (!examName.trim()) {
+      setErrorMessage("Vui lòng nhập tên kì thi.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    if (!subject.trim()) {
+      setErrorMessage("Vui lòng nhập môn thi.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    const parsedDuration = parseInt(duration, 10);
+    if (isNaN(parsedDuration) || parsedDuration < 1) {
+      setErrorMessage("Thời gian thi phải là số hợp lệ và lớn hơn 0.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    if (!schoolName.trim()) {
+      setErrorMessage("Vui lòng nhập tên trường.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    const parsedNumVariants = parseInt(numVariants, 10);
+    if (isNaN(parsedNumVariants) || parsedNumVariants < 1) {
+      setErrorMessage("Số lượng đề phải là số hợp lệ và lớn hơn 0.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    // Validate exam codes
+    const trimmedCodes = examCodes.map(c => c.trim());
+    if (trimmedCodes.some(c => !c)) {
+      setErrorMessage("Vui lòng nhập đầy đủ mã đề.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    // Check for duplicate exam codes
+    const uniqueCodes = new Set(trimmedCodes);
+    if (uniqueCodes.size !== trimmedCodes.length) {
+      setErrorMessage("Mã đề không được trùng nhau.");
+      setIsErrorModalOpen(true);
+      return false;
+    }
+
+    // Save metadata to store
+    const metadata: ExamMetadata = {
+      examName: examName.trim(),
+      subject: subject.trim(),
+      ...(gradeLevel.trim() && { gradeLevel: gradeLevel.trim() }),
+      durationMinutes: parsedDuration,
+      schoolName: schoolName.trim(),
+      numVariants: parsedNumVariants,
+      customExamCodes: trimmedCodes,
+    };
+    setExamMetadata(metadata);
+    return true;
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    // Validate metadata first
+    if (!validateAndSaveMetadata()) {
+      return;
+    }
 
     if (!hasFile) {
       setErrorMessage(ERROR_MESSAGES[ERROR_CODES.NO_FILE_SELECTED]);
@@ -162,8 +259,8 @@ export function MixStartPage() {
                   </p>
 
                   <form className="mt-10 space-y-7" onSubmit={handleSubmit}>
-                    {/* Row 1: Tên kì thi + Môn thi */}
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    {/* Row 1: Tên kì thi + Môn thi + Khối */}
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                       <div>
                         <label className="text-sm font-semibold text-slate-800">
                           Tên Kì thi<span className="text-rose-500">*</span>
@@ -172,6 +269,8 @@ export function MixStartPage() {
                           <DocumentTextIcon className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
+                            value={examName}
+                            onChange={(e) => setExamName(e.target.value)}
                             placeholder="Ví dụ: HK1 2025—2026"
                             className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 pl-12 pr-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
                           />
@@ -186,26 +285,60 @@ export function MixStartPage() {
                           <AcademicCapIcon className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
+                            value={subject}
+                            onChange={(e) => setSubject(e.target.value)}
                             placeholder="Ví dụ: Toán / Anh / Vật lý..."
                             className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 pl-12 pr-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
                           />
                         </div>
                       </div>
-                    </div>
 
-                    {/* Row 2: Số phút + Số lượng đề cần trộn */}
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                       <div>
                         <label className="text-sm font-semibold text-slate-800">
-                          Số phút<span className="text-rose-500">*</span>
+                          Khối
+                        </label>
+                        <div className="relative mt-3">
+                          <input
+                            type="text"
+                            value={gradeLevel}
+                            onChange={(e) => setGradeLevel(e.target.value)}
+                            placeholder="Ví dụ: 10, 11, 12..."
+                            className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 px-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Thời gian thi + Tên trường + Số lượng đề */}
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                      <div>
+                        <label className="text-sm font-semibold text-slate-800">
+                          Thời gian thi (phút)<span className="text-rose-500">*</span>
                         </label>
                         <div className="relative mt-3">
                           <ClockIcon className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                           <input
                             type="number"
                             min={1}
+                            value={duration}
+                            onChange={(e) => setDuration(e.target.value)}
                             placeholder="Ví dụ: 45"
                             className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 pl-12 pr-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-slate-800">
+                          Tên trường<span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative mt-3">
+                          <input
+                            type="text"
+                            value={schoolName}
+                            onChange={(e) => setSchoolName(e.target.value)}
+                            placeholder="Ví dụ: THPT Lê Quý Đôn"
+                            className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 px-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
                           />
                         </div>
                       </div>
@@ -219,10 +352,39 @@ export function MixStartPage() {
                           <input
                             type="number"
                             min={1}
+                            value={numVariants}
+                            onChange={(e) => setNumVariants(e.target.value)}
                             placeholder="Ví dụ: 4"
                             className="w-full rounded-full border border-slate-200 bg-white/80 py-3.5 pl-12 pr-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Row 4: Mã đề tùy chỉnh */}
+                    <div>
+                      <label className="text-sm font-semibold text-slate-800">
+                        Mã đề tùy chỉnh<span className="text-rose-500">*</span>
+                      </label>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Nhập mã đề cho từng biến thể (tương ứng với số lượng đề)
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
+                        {examCodes.map((code, idx) => (
+                          <div key={idx} className="relative">
+                            <input
+                              type="text"
+                              value={code}
+                              onChange={(e) => {
+                                const newCodes = [...examCodes];
+                                newCodes[idx] = e.target.value;
+                                setExamCodes(newCodes);
+                              }}
+                              placeholder={`Mã đề ${idx + 1}`}
+                              className="w-full rounded-full border border-slate-200 bg-white/80 py-3 px-4 text-center text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
+                            />
+                          </div>
+                        ))}
                       </div>
                     </div>
 

@@ -27,6 +27,17 @@ type ParsedDoc = {
   questions: Question[];
 };
 
+// Exam metadata
+export interface ExamMetadata {
+  examName: string;
+  subject: string;
+  gradeLevel?: string; // Khối (optional)
+  durationMinutes: number;
+  schoolName: string; // Tên trường (mandatory)
+  numVariants: number;
+  customExamCodes: string[];
+}
+
 interface MixState {
   // Current selected file path
   selectedFilePath: string | null;
@@ -43,7 +54,10 @@ interface MixState {
   // Mixed exams data
   mixedExams: MixedExam[] | null;
   
-  // Number of exam variants
+  // Exam metadata
+  examMetadata: ExamMetadata | null;
+  
+  // Number of exam variants (deprecated - use examMetadata.numVariants)
   numVariants: number;
   
   // Actions
@@ -53,6 +67,7 @@ interface MixState {
   setIsAnalyzing: (analyzing: boolean) => void;
   setMixedExams: (exams: MixedExam[] | null) => void;
   setNumVariants: (num: number) => void;
+  setExamMetadata: (metadata: ExamMetadata) => void;
   
   // Clear all data (e.g., when selecting a new file)
   clearAnalysis: () => void;
@@ -70,6 +85,7 @@ export const useMixStore = create<MixState>()(
       parsedData: null,
       isAnalyzing: false,
       mixedExams: null,
+      examMetadata: null,
       numVariants: DEFAULT_NUM_VARIANTS,
       
       // Actions
@@ -85,6 +101,8 @@ export const useMixStore = create<MixState>()(
       
       setNumVariants: (num) => set({ numVariants: num }),
       
+      setExamMetadata: (metadata) => set({ examMetadata: metadata, numVariants: metadata.numVariants }),
+      
       clearAnalysis: () =>
         set({
           jobId: null,
@@ -96,9 +114,7 @@ export const useMixStore = create<MixState>()(
         set({
           selectedFilePath: null,
           jobId: null,
-          parsedData: null,
-          isAnalyzing: false,
-          mixedExams: null,
+          examMetadata: null,
           numVariants: DEFAULT_NUM_VARIANTS,
         }),
     }),
@@ -110,6 +126,7 @@ export const useMixStore = create<MixState>()(
         jobId: state.jobId,
         parsedData: state.parsedData,
         mixedExams: state.mixedExams,
+        examMetadata: state.examMetadata,
         numVariants: state.numVariants,
       }),
     }

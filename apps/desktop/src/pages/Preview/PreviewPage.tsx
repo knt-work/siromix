@@ -15,7 +15,7 @@ export const PreviewPage: FC = () => {
   const navigate = useNavigate();
   
   // Use Zustand store
-  const { parsedData: cachedParsedData, setParsedData, setMixedExams, numVariants } = useMixStore();
+  const { parsedData: cachedParsedData, setParsedData, setMixedExams, numVariants, examMetadata } = useMixStore();
 
   const [parsed, setParsed] = useState<ParsedDoc | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -146,19 +146,35 @@ export const PreviewPage: FC = () => {
               <div className="mt-6 space-y-3 rounded-2xl bg-slate-50 p-5">
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-700">Tên kì thi:</span>
-                  <span className="font-semibold text-slate-900">Thi giữa kì I - 2024</span>
+                  <span className="font-semibold text-slate-900">{examMetadata?.examName || "—"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-700">Môn thi:</span>
-                  <span className="font-semibold text-slate-900">Toán học</span>
+                  <span className="font-semibold text-slate-900">{examMetadata?.subject || "—"}</span>
+                </div>
+                {examMetadata?.gradeLevel && (
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium text-slate-700">Khối:</span>
+                    <span className="font-semibold text-slate-900">{examMetadata.gradeLevel}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Thời gian thi:</span>
+                  <span className="font-semibold text-slate-900">{examMetadata?.durationMinutes || "—"} phút</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="font-medium text-slate-700">Số phút:</span>
-                  <span className="font-semibold text-slate-900">90 phút</span>
+                  <span className="font-medium text-slate-700">Tên trường:</span>
+                  <span className="font-semibold text-slate-900">{examMetadata?.schoolName || "—"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-700">Số đề cần trộn:</span>
                   <span className="font-semibold text-slate-900">{numVariants} đề</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium text-slate-700">Mã đề:</span>
+                  <span className="font-semibold text-slate-900">
+                    {examMetadata?.customExamCodes?.join(", ") || "—"}
+                  </span>
                 </div>
               </div>
 
@@ -228,7 +244,7 @@ export const PreviewPage: FC = () => {
                       {/* Question List - Temporarily disabled virtualization for debugging */}
                       <div className="mt-8 space-y-6">
                         {parsed.questions && parsed.questions.length > 0 ? (
-                          parsed.questions.map((q, idx) => (
+                          parsed.questions.map((q) => (
                             <div
                               key={q.number}
                               className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"

@@ -5,6 +5,7 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use zip::write::{FileOptions, ZipWriter};
 use zip::CompressionMethod;
 
@@ -20,6 +21,16 @@ pub struct ExamWriter {
     pub assets_dir: PathBuf,
 }
 
+/// Image information for embedding
+#[derive(Debug, Clone)]
+struct ImageInfo {
+    rel_id: String,
+    path: PathBuf,
+    extension: String,
+    width_emu: i64,  // Width in EMUs (English Metric Units)
+    height_emu: i64, // Height in EMUs
+}
+
 impl ExamWriter {
     /// Write DOCX file to disk
     pub fn write_to_file(&self, output_path: &Path) -> Result<(), std::io::Error> {
@@ -28,6 +39,9 @@ impl ExamWriter {
         let options = FileOptions::default()
             .compression_method(CompressionMethod::Deflated)
             .unix_permissions(0o755);
+
+        // Collect all images from questions
+        let image_map = self.collect_images();
 
         // 1. [Content_Types].xml
         zip.start_file("[Content_Types].xml", options)?;
@@ -39,21 +53,93 @@ impl ExamWriter {
 
         // 3. word/document.xml (main content)
         zip.start_file("word/document.xml", options)?;
-        zip.write_all(self.generate_document_xml().as_bytes())?;
+        zip.write_all(self.generate_document_xml(&image_map).as_bytes())?;
 
         // 4. word/_rels/document.xml.rels
         zip.start_file("word/_rels/document.xml.rels", options)?;
-        zip.write_all(self.generate_document_rels().as_bytes())?;
+        zip.write_all(self.generate_document_rels(&image_map).as_bytes())?;
 
         // 5. word/styles.xml
         zip.start_file("word/styles.xml", options)?;
         zip.write_all(self.generate_styles_xml().as_bytes())?;
 
         // 6. Embed images
-        self.embed_images(&mut zip, options)?;
+        self.embed_images(&mut zip, options, &image_map)?;
 
         zip.finish()?;
         Ok(())
+    }
+
+    /// Collect all unique images from questions and assign relationship IDs
+    fn collect_images(&self) -> HashMap<String, ImageInfo> {
+        let mut image_map = HashMap::new();
+        let mut rel_counter = 1;
+
+        for question in &self.questions {
+            // Check stem segments
+            for segment in &question.stem {
+                if let Segment::Image { asset_path, .. } = segment {
+                    if !image_map.contains_key(asset_path) {
+                        if let Some(info) = self.create_image_info(asset_path, rel_counter) {
+                            image_map.insert(asset_path.clone(), info);
+                            rel_counter += 1;
+                        }
+                    }
+                }
+            }
+
+            // Check option segments
+            for option in &question.options {
+                for segment in &option.content {
+                    if let Segment::Image { asset_path, .. } = segment {
+                        if !image_map.contains_key(asset_path) {
+                            if let Some(info) = self.create_image_info(asset_path, rel_counter) {
+                                image_map.insert(asset_path.clone(), info);
+                                rel_counter += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        image_map
+    }
+
+    /// Create ImageInfo from asset path
+    fn create_image_info(&self, asset_path: &str, rel_id: usize) -> Option<ImageInfo> {
+        let path = PathBuf::from(asset_path);
+        if !path.exists() {
+            return None;
+        }
+
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png")
+            .to_lowercase();
+
+        // Read image dimensions
+        let (width_emu, height_emu) = match image::image_dimensions(&path) {
+            Ok((width, height)) => {
+                // Convert pixels to EMUs (1 pixel = 9525 EMUs at 96 DPI)
+                let width_emu = (width as i64) * 9525;
+                let height_emu = (height as i64) * 9525;
+                (width_emu, height_emu)
+            }
+            Err(_) => {
+                // Fallback to default size if can't read dimensions
+                (914400, 914400) // 1 inch x 1 inch
+            }
+        };
+
+        Some(ImageInfo {
+            rel_id: format!("rId{}", rel_id),
+            path,
+            extension,
+            width_emu,
+            height_emu,
+        })
     }
 
     /// Generate [Content_Types].xml
@@ -84,7 +170,7 @@ impl ExamWriter {
     }
 
     /// Generate word/document.xml with questions and OMML
-    fn generate_document_xml(&self) -> String {
+    fn generate_document_xml(&self, image_map: &HashMap<String, ImageInfo>) -> String {
         let mut doc = String::from(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -101,7 +187,7 @@ impl ExamWriter {
 
         // Questions
         for (idx, question) in self.questions.iter().enumerate() {
-            doc.push_str(&self.generate_question_xml(idx + 1, question));
+            doc.push_str(&self.generate_question_xml(idx + 1, question, image_map));
         }
 
         doc.push_str(
@@ -155,19 +241,31 @@ impl ExamWriter {
     }
 
     /// Generate XML for a single question
-    fn generate_question_xml(&self, num: usize, question: &Question) -> String {
+    fn generate_question_xml(&self, num: usize, question: &Question, image_map: &HashMap<String, ImageInfo>) -> String {
         let mut xml = String::new();
 
         // Question stem paragraph
         xml.push_str("<w:p>");
-        xml.push_str(&format!(
-            r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
-            num
-        ));
+        
+        // Check if first segment already contains "Câu X." prefix
+        let stem_has_prefix = question.stem.first().map_or(false, |seg| {
+            match seg {
+                Segment::Text { text, .. } => text.contains("Câu"),
+                _ => false,
+            }
+        });
+
+        if !stem_has_prefix {
+            // Add question number prefix if not already in content
+            xml.push_str(&format!(
+                r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
+                num
+            ));
+        }
 
         // Stem content
         for segment in &question.stem {
-            xml.push_str(&self.segment_to_xml(segment));
+            xml.push_str(&self.segment_to_xml(segment, image_map));
         }
         xml.push_str("</w:p>");
 
@@ -177,13 +275,36 @@ impl ExamWriter {
             xml.push_str(
                 r#"<w:pPr><w:ind w:left="720"/></w:pPr>"#, // 0.5" indent
             );
-            xml.push_str(&format!(
-                r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>{}. </w:t></w:r>"#,
-                option.label
-            ));
+            
+            // Check if first segment already contains option label
+            let option_has_prefix = option.content.first().map_or(false, |seg| {
+                match seg {
+                    Segment::Text { text, .. } => {
+                        text.starts_with(&format!("{}.", option.label)) ||
+                        text.starts_with(&format!("#{}.", option.label)) ||
+                        text.contains(&format!("{}. ", option.label)) ||
+                        text.contains(&format!("#{}. ", option.label))
+                    },
+                    _ => false,
+                }
+            });
 
+            if !option_has_prefix {
+                // Add option label prefix if not already in content
+                let label_str = if option.locked {
+                    format!("#{}. ", option.label)
+                } else {
+                    format!("{}. ", option.label)
+                };
+                xml.push_str(&format!(
+                    r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>{}</w:t></w:r>"#,
+                    label_str
+                ));
+            }
+
+            // Option content
             for segment in &option.content {
-                xml.push_str(&self.segment_to_xml(segment));
+                xml.push_str(&self.segment_to_xml(segment, image_map));
             }
             xml.push_str("</w:p>");
         }
@@ -194,42 +315,119 @@ impl ExamWriter {
         xml
     }
 
-    /// Convert segment to OpenXML
-    fn segment_to_xml(&self, segment: &Segment) -> String {
+    /// Convert segment to OpenXML - generate clean XML with embedded images
+    fn segment_to_xml(&self, segment: &Segment, image_map: &HashMap<String, ImageInfo>) -> String {
         match segment {
-            Segment::Text { text } => {
+            Segment::Text { text, .. } => {
+                // Generate clean text run with basic formatting
+                if text.is_empty() {
+                    return String::new();
+                }
+                
+                // Escape XML special characters
                 let escaped = text
                     .replace('&', "&amp;")
                     .replace('<', "&lt;")
-                    .replace('>', "&gt;");
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;");
+                
                 format!(
-                    r#"<w:r><w:rPr><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                    r#"<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="26"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
                     escaped
                 )
             }
-            Segment::Image { asset_path, .. } => {
-                // Will be replaced with actual image embed logic
-                format!(r#"<w:r><w:t>[Image: {}]</w:t></w:r>"#, asset_path)
+            Segment::Image { asset_path, width_emu, height_emu, .. } => {
+                // Use dimensions from original document if available, otherwise use from file
+                if *width_emu > 0 && *height_emu > 0 {
+                    // Use original document dimensions
+                    if let Some(img_info) = image_map.get(asset_path) {
+                        self.generate_image_xml(&img_info.rel_id, *width_emu, *height_emu)
+                    } else {
+                        format!(r#"<w:r><w:rPr><w:sz w:val="26"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#)
+                    }
+                } else {
+                    // Fallback to image file dimensions
+                    if let Some(img_info) = image_map.get(asset_path) {
+                        self.generate_image_xml(&img_info.rel_id, img_info.width_emu, img_info.height_emu)
+                    } else {
+                        format!(r#"<w:r><w:rPr><w:sz w:val="26"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#)
+                    }
+                }
             }
-            Segment::Math { omml } => {
-                // 🔥 Direct OMML injection
-                format!(
-                    r#"<w:r><m:oMathPara><m:oMath>{}</m:oMath></m:oMathPara></w:r>"#,
-                    omml
-                )
+            Segment::Math { omml, .. } => {
+                // Use the OMML content directly
+                // Wrap it in a run
+                format!(r#"<w:r>{}</w:r>"#, omml)
             }
         }
     }
 
-    /// Generate word/_rels/document.xml.rels
-    fn generate_document_rels(&self) -> String {
+    /// Generate DrawingML XML for an image with actual dimensions
+    fn generate_image_xml(&self, rel_id: &str, width_emu: i64, height_emu: i64) -> String {
+
+        format!(
+            r#"<w:r>
+    <w:drawing>
+        <wp:inline distT="0" distB="0" distL="0" distR="0">
+            <wp:extent cx="{}" cy="{}"/>
+            <wp:effectExtent l="0" t="0" r="0" b="0"/>
+            <wp:docPr id="1" name="Picture"/>
+            <wp:cNvGraphicFramePr>
+                <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>
+            </wp:cNvGraphicFramePr>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                        <pic:nvPicPr>
+                            <pic:cNvPr id="0" name="Picture"/>
+                            <pic:cNvPicPr/>
+                        </pic:nvPicPr>
+                        <pic:blipFill>
+                            <a:blip r:embed="{}"/>
+                            <a:stretch>
+                                <a:fillRect/>
+                            </a:stretch>
+                        </pic:blipFill>
+                        <pic:spPr>
+                            <a:xfrm>
+                                <a:off x="0" y="0"/>
+                                <a:ext cx="{}" cy="{}"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                                <a:avLst/>
+                            </a:prstGeom>
+                        </pic:spPr>
+                    </pic:pic>
+                </a:graphicData>
+            </a:graphic>
+        </wp:inline>
+    </w:drawing>
+</w:r>"#,
+            width_emu, height_emu, rel_id, width_emu, height_emu
+        )
+    }
+
+    /// Generate word/_rels/document.xml.rels with image relationships
+    fn generate_document_rels(&self, image_map: &HashMap<String, ImageInfo>) -> String {
         let mut rels = String::from(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
         );
 
-        // Add image relationships (will be populated later)
-        // For now, just close
+        // Add image relationships
+        for (_, img_info) in image_map {
+            let filename = img_info.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("image.png");
+
+            rels.push_str(&format!(
+                r#"
+    <Relationship Id="{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/{}"/>"#,
+                img_info.rel_id, filename
+            ));
+        }
+
         rels.push_str("\n</Relationships>");
         rels
     }
@@ -253,11 +451,30 @@ impl ExamWriter {
     /// Embed images into DOCX
     fn embed_images(
         &self,
-        _zip: &mut ZipWriter<BufWriter<File>>,
-        _options: FileOptions,
+        zip: &mut ZipWriter<BufWriter<File>>,
+        options: FileOptions,
+        image_map: &HashMap<String, ImageInfo>,
     ) -> Result<(), std::io::Error> {
-        // TODO: Copy images from assets_dir to word/media/
-        // TODO: Update document.xml.rels
+        use std::io::Read;
+
+        for (_, img_info) in image_map {
+            // Read image file
+            let mut file = File::open(&img_info.path)?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer)?;
+
+            // Get filename
+            let filename = img_info.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("image.png");
+
+            // Write to word/media/ directory in zip
+            let media_path = format!("word/media/{}", filename);
+            zip.start_file(&media_path, options)?;
+            zip.write_all(&buffer)?;
+        }
+
         Ok(())
     }
 }

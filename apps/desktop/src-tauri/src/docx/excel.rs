@@ -3,25 +3,34 @@
 
 use rust_xlsxwriter::*;
 use std::path::Path;
+use serde::Deserialize;
 
 /// Mixed exam data structure (matches frontend)
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct MixedExam {
     #[serde(rename = "examCode")]
     pub exam_code: String,
     pub questions: Vec<MixedQuestion>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct MixedQuestion {
     #[serde(rename = "originalNumber")]
     pub original_number: usize,
     #[serde(rename = "displayNumber")]
     pub display_number: usize,
-    pub stem: Vec<serde_json::Value>,
-    pub options: Vec<serde_json::Value>,
+    pub stem: Vec<crate::docx::model::Segment>,
+    pub options: Vec<MixedOption>,
     #[serde(rename = "correctAnswer")]
     pub correct_answer: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MixedOption {
+    pub label: String,
+    #[serde(rename = "originalLabel")]
+    pub original_label: String,
+    pub content: Vec<crate::docx::model::Segment>,
 }
 
 /// Write answer key to Excel file

@@ -18,7 +18,7 @@ pub fn parse_document_xml_to_parsed_doc(
     assets: &[ExtractedAsset],
 ) -> ParsedDoc {
     let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
-    let option_re = Regex::new(r"^(?P<label>#?[A-F])\.").unwrap();
+    let option_re = Regex::new(r"^(?P<label>#?[A-F])\s*\.").unwrap();
 
     let mut questions: Vec<Question> = Vec::new();
     let mut current_question: Option<Question> = None;
@@ -86,31 +86,86 @@ pub fn parse_document_xml_to_parsed_doc(
         // Case 2: New option paragraph (starts with "A." / "B." / etc.)
         if let Some(caps) = option_re.captures(trimmed) {
             if let Some(ref mut q) = current_question {
-                let raw_label = caps
-                    .name("label")
-                    .map(|m| m.as_str().to_string())
-                    .unwrap_or_default();
+                // Check if there are multiple options in this paragraph (e.g., "C. ... D. ...")
+                // by finding all option patterns in the plain text
+                let option_positions: Vec<_> = option_re.find_iter(trimmed).collect();
+                
+                if option_positions.len() > 1 {
+                    // Multiple options in same paragraph - need to split
+                    for (i, option_match) in option_positions.iter().enumerate() {
+                        let option_start = option_match.start();
+                        let option_end = if i + 1 < option_positions.len() {
+                            option_positions[i + 1].start()
+                        } else {
+                            trimmed.len()
+                        };
+                        
+                        // Extract label for this option
+                        let option_text = &trimmed[option_start..option_end];
+                        if let Some(label_caps) = option_re.captures(option_text) {
+                            let raw_label = label_caps
+                                .name("label")
+                                .map(|m| m.as_str().to_string())
+                                .unwrap_or_default();
 
-                let is_locked = raw_label.starts_with('#');
-                let label = if is_locked {
-                    raw_label[1..].to_string()
+                            let is_locked = raw_label.starts_with('#');
+                            let label = if is_locked {
+                                raw_label[1..].to_string()
+                            } else {
+                                raw_label
+                            };
+                            
+                            // For multi-option paragraphs, extract segments for this specific option
+                            // This is approximate - we take segments proportionally by character position
+                            let prefix_len = label_caps.get(0).unwrap().end();
+                            let option_content = &option_text[prefix_len..].trim();
+                            
+                            // Create a text segment for this option's content
+                            let content_segments = vec![Segment::Text {
+                                text: option_content.to_string(),
+                                raw_xml: String::new(), // TODO: Extract proper raw XML
+                            }];
+
+                            q.options.push(OptionItem {
+                                label: label.clone(),
+                                locked: is_locked,
+                                content: content_segments,
+                            });
+
+                            // If this is a locked option (e.g., "#A."), set as correct answer
+                            if is_locked && q.correct_label.is_empty() {
+                                q.correct_label = label;
+                            }
+                        }
+                    }
                 } else {
-                    raw_label
-                };
+                    // Single option - process normally
+                    let raw_label = caps
+                        .name("label")
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
 
-                // Remove option prefix ("A. ") from segments to get content
-                let prefix_end = caps.get(0).unwrap().end();
-                let content_segments = trim_prefix_from_segments(&segments, prefix_end);
+                    let is_locked = raw_label.starts_with('#');
+                    let label = if is_locked {
+                        raw_label[1..].to_string()
+                    } else {
+                        raw_label
+                    };
 
-                q.options.push(OptionItem {
-                    label: label.clone(),
-                    locked: is_locked,
-                    content: content_segments,
-                });
+                    // Remove option prefix ("A. ") from segments to get content
+                    let prefix_end = caps.get(0).unwrap().end();
+                    let content_segments = trim_prefix_from_segments(&segments, prefix_end);
 
-                // If this is a locked option (e.g., "#A."), set as correct answer
-                if is_locked && q.correct_label.is_empty() {
-                    q.correct_label = label;
+                    q.options.push(OptionItem {
+                        label: label.clone(),
+                        locked: is_locked,
+                        content: content_segments,
+                    });
+
+                    // If this is a locked option (e.g., "#A."), set as correct answer
+                    if is_locked && q.correct_label.is_empty() {
+                        q.correct_label = label;
+                    }
                 }
             }
 
@@ -153,6 +208,31 @@ pub fn parse_document_xml_to_parsed_doc(
 /// - <w:drawing>...</w:drawing> or <w:object>...</w:object> → Segment::Image
 ///   Images (including OLE Equation objects with VML/v:imagedata) are mapped
 ///   to extracted media assets purely by global order of appearance.
+///
+/// Helper function to find the start of a <w:r> tag (not <w:rPr>)
+fn find_run_start(block: &str, before_pos: usize) -> usize {
+    let mut search_end = before_pos;
+    loop {
+        if let Some(idx) = block[..search_end].rfind("<w:r") {
+            // Check the character after "<w:r"
+            let check_pos = idx + "<w:r".len();
+            if check_pos < block.len() {
+                let ch = &block[check_pos..check_pos + 1];
+                // Valid <w:r> tag if followed by '>' or ' '
+                if ch == ">" || ch == " " {
+                    return idx;
+                }
+                // Otherwise it's <w:rPr> or similar, keep searching backwards
+                search_end = idx;
+            } else {
+                return idx;
+            }
+        } else {
+            return before_pos; // Not found, use fallback
+        }
+    }
+}
+
 fn extract_segments_from_paragraph(
     block: &str,
     assets: &[ExtractedAsset],
@@ -161,6 +241,7 @@ fn extract_segments_from_paragraph(
     let mut segments = Vec::new();
     let mut cursor = 0;
     let mut pending_text = String::new();
+    let mut pending_raw_xml = String::new();
 
     loop {
         // Look for next interesting element: <w:t>, <m:oMath>, or <w:drawing>
@@ -266,7 +347,10 @@ fn extract_segments_from_paragraph(
 
         match element_type {
             "text" => {
-                // Extract text content from <w:t>text</w:t>
+                // Find the containing <w:r> block to preserve formatting
+                let run_start = find_run_start(block, start);
+                
+                // Find end of <w:t> tag
                 let gt_rel = match block[start..].find('>') {
                     Some(idx) => idx,
                     None => break,
@@ -278,17 +362,31 @@ fn extract_segments_from_paragraph(
                     None => break,
                 };
                 let content_end = content_start + end_tag_rel;
-
-                let fragment = &block[content_start..content_end];
                 
-                // Decode XML entities
-                let fragment = fragment
+                // Find end of </w:r> tag
+                let run_end = match block[content_end..].find("</w:r>") {
+                    Some(idx) => content_end + idx + "</w:r>".len(),
+                    None => content_end + "</w:t>".len(),
+                };
+
+                // Extract plain text for display
+                let fragment = &block[content_start..content_end];
+                let text_fragment = fragment
                     .replace("&lt;", "<")
                     .replace("&gt;", ">")
                     .replace("&amp;", "&");
 
-                pending_text.push_str(&fragment);
-                cursor = content_end + "</w:t>".len();
+                // Capture full <w:r>...</w:r> block with formatting
+                let raw_xml = block[run_start..run_end].to_string();
+
+                // Accumulate text and XML for this run
+                if !pending_text.is_empty() {
+                    pending_text.push(' ');
+                }
+                pending_text.push_str(&text_fragment);
+                pending_raw_xml.push_str(&raw_xml);
+                
+                cursor = run_end;
             }
             "math" => {
                 // Flush pending text before adding math
@@ -297,10 +395,15 @@ fn extract_segments_from_paragraph(
                     if !trimmed.is_empty() {
                         segments.push(Segment::Text {
                             text: trimmed.to_string(),
+                            raw_xml: pending_raw_xml.clone(),
                         });
                     }
                     pending_text.clear();
+                    pending_raw_xml.clear();
                 }
+
+                // Find the containing <w:r> block (math is usually wrapped in <w:r><m:oMathPara><m:oMath>...)
+                let run_start = find_run_start(block, start);
 
                 // Extract full <m:oMath>...</m:oMath> block (preserve OMML)
                 let end_rel = match block[start..].find("</m:oMath>") {
@@ -310,8 +413,19 @@ fn extract_segments_from_paragraph(
                 let end = start + end_rel;
                 let omml = block[start..end].to_string();
 
-                segments.push(Segment::Math { omml });
-                cursor = end;
+                // Find end of </w:r> after the math
+                let run_end = match block[end..].find("</w:r>") {
+                    Some(idx) => end + idx + "</w:r>".len(),
+                    None => end,
+                };
+
+                let raw_xml = block[run_start..run_end].to_string();
+
+                segments.push(Segment::Math { 
+                    omml,
+                    raw_xml,
+                });
+                cursor = run_end;
             }
             "drawing" => {
                 // Flush pending text before adding image
@@ -320,17 +434,30 @@ fn extract_segments_from_paragraph(
                     if !trimmed.is_empty() {
                         segments.push(Segment::Text {
                             text: trimmed.to_string(),
+                            raw_xml: pending_raw_xml.clone(),
                         });
                     }
                     pending_text.clear();
+                    pending_raw_xml.clear();
                 }
 
-                // Skip over full <w:drawing>...</w:drawing> block
+                // Find the containing <w:r> block
+                let run_start = find_run_start(block, start);
+
+                // Find end of <w:drawing>
                 let end_rel = match block[start..].find("</w:drawing>") {
                     Some(idx) => idx + "</w:drawing>".len(),
                     None => break,
                 };
                 let end = start + end_rel;
+
+                // Find end of </w:r>
+                let run_end = match block[end..].find("</w:r>") {
+                    Some(idx) => end + idx + "</w:r>".len(),
+                    None => end,
+                };
+
+                let raw_xml = block[run_start..run_end].to_string();
 
                 // Map this drawing to the next extracted media asset (if any)
                 let asset_path = if *next_asset_index < assets.len() {
@@ -354,11 +481,19 @@ fn extract_segments_from_paragraph(
                     String::new()
                 };
 
+                // Parse dimensions from <wp:extent cx="..." cy="..."/>
+                let (width_emu, height_emu) = parse_image_dimensions(&raw_xml);
+
                 if !asset_path.is_empty() {
-                    segments.push(Segment::Image { asset_path });
+                    segments.push(Segment::Image { 
+                        asset_path,
+                        raw_xml,
+                        width_emu,
+                        height_emu,
+                    });
                 }
 
-                cursor = end;
+                cursor = run_end;
             }
             "object" => {
                 // Flush pending text before adding image (OLE Equation object)
@@ -367,17 +502,30 @@ fn extract_segments_from_paragraph(
                     if !trimmed.is_empty() {
                         segments.push(Segment::Text {
                             text: trimmed.to_string(),
+                            raw_xml: pending_raw_xml.clone(),
                         });
                     }
                     pending_text.clear();
+                    pending_raw_xml.clear();
                 }
 
-                // Skip over full <w:object>...</w:object> block
+                // Find the containing <w:r> block
+                let run_start = find_run_start(block, start);
+
+                // Find end of <w:object>
                 let end_rel = match block[start..].find("</w:object>") {
                     Some(idx) => idx + "</w:object>".len(),
                     None => break,
                 };
                 let end = start + end_rel;
+
+                // Find end of </w:r>
+                let run_end = match block[end..].find("</w:r>") {
+                    Some(idx) => end + idx + "</w:r>".len(),
+                    None => end,
+                };
+
+                let raw_xml = block[run_start..run_end].to_string();
 
                 // Map this OLE object (which contains <v:imagedata>)
                 // to the next extracted media asset (Equation preview image).
@@ -402,11 +550,19 @@ fn extract_segments_from_paragraph(
                     String::new()
                 };
 
+                // Parse dimensions from <v:shape style="width:...;height:..."/>
+                let (width_emu, height_emu) = parse_image_dimensions(&raw_xml);
+
                 if !asset_path.is_empty() {
-                    segments.push(Segment::Image { asset_path });
+                    segments.push(Segment::Image { 
+                        asset_path,
+                        raw_xml,
+                        width_emu,
+                        height_emu,
+                    });
                 }
 
-                cursor = end;
+                cursor = run_end;
             }
             _ => break,
         }
@@ -418,11 +574,105 @@ fn extract_segments_from_paragraph(
         if !trimmed.is_empty() {
             segments.push(Segment::Text {
                 text: trimmed.to_string(),
+                raw_xml: pending_raw_xml.clone(),
             });
         }
     }
 
     segments
+}
+
+/// Parse image dimensions from XML (either <wp:extent> for drawings or <v:shape> for objects)
+fn parse_image_dimensions(xml: &str) -> (i64, i64) {
+    // Try to find <wp:extent cx="..." cy="..."/> for modern drawings
+    if let Some(extent_start) = xml.find("<wp:extent") {
+        if let Some(extent_end) = xml[extent_start..].find("/>") {
+            let extent_block = &xml[extent_start..extent_start + extent_end];
+            
+            // Parse cx (width)
+            let width = if let Some(cx_start) = extent_block.find("cx=\"") {
+                let cx_val_start = cx_start + 4;
+                if let Some(cx_end) = extent_block[cx_val_start..].find('"') {
+                    extent_block[cx_val_start..cx_val_start + cx_end]
+                        .parse::<i64>()
+                        .unwrap_or(0)
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            
+            // Parse cy (height)
+            let height = if let Some(cy_start) = extent_block.find("cy=\"") {
+                let cy_val_start = cy_start + 4;
+                if let Some(cy_end) = extent_block[cy_val_start..].find('"') {
+                    extent_block[cy_val_start..cy_val_start + cy_end]
+                        .parse::<i64>()
+                        .unwrap_or(0)
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            
+            if width > 0 && height > 0 {
+                return (width, height);
+            }
+        }
+    }
+    
+    // Try to parse from <v:shape style="...width:...;height:..."/> for OLE objects
+    if let Some(shape_start) = xml.find("<v:shape") {
+        if let Some(style_start) = xml[shape_start..].find("style=\"") {
+            let style_val_start = shape_start + style_start + 7;
+            if let Some(style_end) = xml[style_val_start..].find('"') {
+                let style_block = &xml[style_val_start..style_val_start + style_end];
+                
+                // Parse width (in pt, need to convert to EMU)
+                let width = if let Some(w_start) = style_block.find("width:") {
+                    let w_val_start = w_start + 6;
+                    if let Some(w_end) = style_block[w_val_start..].find("pt") {
+                        let w_str = &style_block[w_val_start..w_val_start + w_end];
+                        if let Ok(w_pt) = w_str.parse::<f64>() {
+                            (w_pt * 12700.0) as i64 // 1 pt = 12700 EMUs
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                
+                // Parse height (in pt, need to convert to EMU)
+                let height = if let Some(h_start) = style_block.find("height:") {
+                    let h_val_start = h_start + 7;
+                    if let Some(h_end) = style_block[h_val_start..].find("pt") {
+                        let h_str = &style_block[h_val_start..h_val_start + h_end];
+                        if let Ok(h_pt) = h_str.parse::<f64>() {
+                            (h_pt * 12700.0) as i64 // 1 pt = 12700 EMUs
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                
+                if width > 0 && height > 0 {
+                    return (width, height);
+                }
+            }
+        }
+    }
+    
+    // Default fallback size (1 inch x 1 inch)
+    (914400, 914400)
 }
 
 /// Convert segments to plain text for regex pattern matching.
@@ -433,7 +683,7 @@ fn segments_to_plain_text(segments: &[Segment]) -> String {
     let mut result = String::new();
     for seg in segments {
         match seg {
-            Segment::Text { text } => {
+            Segment::Text { text, .. } => {
                 if !result.is_empty() && !result.ends_with(' ') {
                     result.push(' ');
                 }
@@ -467,7 +717,7 @@ fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Seg
 
     for seg in segments {
         match seg {
-            Segment::Text { text } => {
+            Segment::Text { text, raw_xml } => {
                 if chars_skipped >= prefix_len {
                     // Already skipped enough, keep this segment
                     result.push(seg.clone());
@@ -476,7 +726,12 @@ fn trim_prefix_from_segments(segments: &[Segment], prefix_len: usize) -> Vec<Seg
                     let skip_in_this = prefix_len - chars_skipped;
                     let remaining = text[skip_in_this..].trim_start().to_string();
                     if !remaining.is_empty() {
-                        result.push(Segment::Text { text: remaining });
+                        // Note: raw_xml trimming is complex, for now keep original
+                        // TODO: Properly trim raw_xml to match trimmed text
+                        result.push(Segment::Text { 
+                            text: remaining,
+                            raw_xml: raw_xml.clone(),
+                        });
                     }
                     chars_skipped = prefix_len;
                 } else {
@@ -616,7 +871,7 @@ pub fn collect_labeled_option_runs(document_xml: &str) -> HashMap<u32, Vec<Label
     let question_re = Regex::new(r"^(Câu|Question)\s+(\d+)\.").unwrap();
     // Chấp nhận cả trường hợp nhãn chỉ là chữ cái ("D") lẫn "D." trong cùng một run.
     // Điều này xử lý các tình huống DOCX tách "D" và "." thành hai run khác nhau.
-    let option_label_re = Regex::new(r"^(?P<label>#?[A-F])(\.|$)").unwrap();
+    let option_label_re = Regex::new(r"^(?P<label>#?[A-F])\s*(\.|$)").unwrap();
 
     let mut result: HashMap<u32, Vec<LabeledOptionRuns>> = HashMap::new();
 
@@ -761,12 +1016,14 @@ pub fn build_segments_from_pieces(
                 if !text.is_empty() {
                     segments.push(Segment::Text {
                         text: text.clone(),
+                        raw_xml: String::new(), // Legacy function - no raw XML available
                     });
                 }
             }
             InlinePiece::Math { omml } => {
                 segments.push(Segment::Math {
                     omml: omml.clone(),
+                    raw_xml: String::new(), // Legacy function - no raw XML available
                 });
             }
             InlinePiece::Image => {
@@ -783,7 +1040,12 @@ pub fn build_segments_from_pieces(
                     String::new()
                 };
 
-                segments.push(Segment::Image { asset_path });
+                segments.push(Segment::Image { 
+                    asset_path,
+                    raw_xml: String::new(), // Legacy function - no raw XML available
+                    width_emu: 0,
+                    height_emu: 0,
+                });
             }
         }
     }

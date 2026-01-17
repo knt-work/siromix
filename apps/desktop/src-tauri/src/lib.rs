@@ -187,17 +187,25 @@ async fn export_mixed_exams(
 
     // Generate DOCX for each exam variant
     for exam in &exams {
-        // Convert MixedQuestion back to Question format
+        // Convert MixedQuestion to Question format
         let questions: Vec<crate::docx::model::Question> = exam
             .questions
             .iter()
             .map(|mq| {
-                // Reconstruct Question from MixedQuestion
-                // Note: We'll need to match with original parsed data
+                // Convert MixedOptions to OptionItems
+                let options: Vec<crate::docx::model::OptionItem> = mq.options
+                    .iter()
+                    .map(|opt| crate::docx::model::OptionItem {
+                        label: opt.label.clone(),
+                        locked: false, // Options are not locked in mixed exams
+                        content: opt.content.clone(),
+                    })
+                    .collect();
+
                 crate::docx::model::Question {
                     number: mq.display_number as u32,
-                    stem: vec![], // Will be populated from original
-                    options: vec![], // Will be populated from shuffled
+                    stem: mq.stem.clone(),
+                    options,
                     correct_label: mq.correct_answer.clone(),
                 }
             })

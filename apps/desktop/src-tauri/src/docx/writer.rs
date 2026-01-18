@@ -393,6 +393,65 @@ impl ExamWriter {
             </w:tr>
         </w:tbl>
         <w:p/>
+        <w:p>
+            <w:pPr>
+                <w:jc w:val="center"/>
+                <w:spacing w:after="120"/>
+            </w:pPr>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                    <w:b/>
+                    <w:sz w:val="{}"/>
+                </w:rPr>
+                <w:t>ĐỀ</w:t>
+            </w:r>
+        </w:p>
+        <w:p>
+            <w:pPr>
+                <w:spacing w:after="60"/>
+            </w:pPr>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                    <w:b/>
+                    <w:sz w:val="{}"/>
+                </w:rPr>
+                <w:t>I. PHẦN TRẮC NGHIỆM</w:t>
+            </w:r>
+        </w:p>
+        <w:p>
+            <w:pPr>
+                <w:spacing w:after="60"/>
+            </w:pPr>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                    <w:b/>
+                    <w:i/>
+                    <w:sz w:val="{}"/>
+                </w:rPr>
+                <w:t>Chọn ý trả lời đúng nhất trong các câu sau bằng cách ghi vào bài làm </w:t>
+            </w:r>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                    <w:b/>
+                    <w:i/>
+                    <w:sz w:val="{}"/>
+                </w:rPr>
+                <w:t>(ví dụ: Câu 1A; Câu 2B...)</w:t>
+            </w:r>
+            <w:r>
+                <w:rPr>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                    <w:b/>
+                    <w:i/>
+                    <w:sz w:val="{}"/>
+                </w:rPr>
+                <w:t>, mỗi câu chọn đúng được 0,25 điểm.</w:t>
+            </w:r>
+        </w:p>
 "#,
             // Left column - School name (bold + underline)
             line_spacing, spacing_after, font, font, font, font, size, self.school_name,
@@ -413,7 +472,17 @@ impl ExamWriter {
             // Duration (italic)
             line_spacing, spacing_after, font, font, font, font, size, self.duration_minutes,
             // Distribution note (italic)
-            line_spacing, spacing_after, font, font, font, font, size
+            line_spacing, spacing_after, font, font, font, font, size,
+            // "ĐỀ" heading (bold, centered)
+            font, font, font, font, size,
+            // "I. PHẦN TRẮC NGHIỆM" (bold)
+            font, font, font, font, size,
+            // Instruction line (bold) - part 1
+            font, font, font, font, size,
+            // Instruction line (bold) - example part
+            font, font, font, font, size,
+            // Instruction line (bold) - rest
+            font, font, font, font, size
         )
     }
 
@@ -449,14 +518,33 @@ impl ExamWriter {
         for segment in &question.stem {
             xml.push_str(&self.segment_to_xml(segment, image_map));
         }
+        
+        // Check if stem ends with ? or : and add : if needed
+        let needs_punctuation = question.stem.last().map_or(false, |seg| {
+            if let Segment::Text { text, .. } = seg {
+                let trimmed = text.trim_end();
+                !trimmed.ends_with('?') && !trimmed.ends_with(':')
+            } else {
+                false
+            }
+        });
+        
+        if needs_punctuation {
+            xml.push_str(&format!(
+                r#"<w:r><w:rPr><w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/><w:sz w:val="{}"/></w:rPr><w:t>:</w:t></w:r>"#,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_SIZE_BODY
+            ));
+        }
+        
         xml.push_str("</w:p>");
 
         // Options
         for option in &question.options {
             xml.push_str("<w:p>");
-            xml.push_str(
-                r#"<w:pPr><w:ind w:left="720"/></w:pPr>"#, // 0.5" indent
-            );
             
             // Check if first segment already contains option label
             let option_has_prefix = option.content.first().map_or(false, |seg| {
@@ -489,17 +577,50 @@ impl ExamWriter {
                 ));
             }
 
-            // Option content
-            for segment in &option.content {
-                xml.push_str(&self.segment_to_xml(segment, image_map));
+            // Option content - capitalize first letter
+            for (idx, segment) in option.content.iter().enumerate() {
+                if idx == 0 && !option_has_prefix {
+                    // Capitalize first segment if we added the label
+                    if let Segment::Text { text, .. } = segment {
+                        let capitalized = Self::capitalize_first_char(text);
+                        let escaped = capitalized
+                            .replace('&', "&amp;")
+                            .replace('<', "&lt;")
+                            .replace('>', "&gt;")
+                            .replace('"', "&quot;");
+                        xml.push_str(&format!(
+                            r#"<w:r><w:rPr><w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/><w:sz w:val="{}"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                            NghiDinh30::FONT_NAME,
+                            NghiDinh30::FONT_NAME,
+                            NghiDinh30::FONT_NAME,
+                            NghiDinh30::FONT_NAME,
+                            NghiDinh30::FONT_SIZE_BODY,
+                            escaped
+                        ));
+                    } else {
+                        xml.push_str(&self.segment_to_xml(segment, image_map));
+                    }
+                } else {
+                    xml.push_str(&self.segment_to_xml(segment, image_map));
+                }
             }
             xml.push_str("</w:p>");
         }
 
-        // Spacer
-        xml.push_str("<w:p/>");
-
         xml
+    }
+
+    /// Capitalize first character of a string
+    fn capitalize_first_char(s: &str) -> String {
+        let mut chars = s.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(first) => {
+                let mut result = first.to_uppercase().collect::<String>();
+                result.push_str(chars.as_str());
+                result
+            }
+        }
     }
 
     /// Convert segment to OpenXML - generate clean XML with embedded images

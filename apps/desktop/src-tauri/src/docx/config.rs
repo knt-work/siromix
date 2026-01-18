@@ -63,6 +63,19 @@ impl NghiDinh30 {
     
     /// Page number font size: 13pt (as per decree requirement)
     pub const FONT_SIZE_PAGE_NUMBER: i32 = 26;
+    
+    /// Header font size: 13pt (for exam header table)
+    pub const FONT_SIZE_HEADER: i32 = 26;
+    
+    // ==================== LINE SPACING ====================
+    /// Header table line spacing (in 240ths of a line)
+    /// 240 = single spacing (1.0), 360 = 1.5 spacing, 480 = double spacing
+    /// Using 240 (Single) as per Word default config
+    pub const HEADER_LINE_SPACING: i32 = 240;
+    
+    /// Paragraph spacing after (in twips, 1pt = 20 twips)
+    /// Using 80 twips = 4pt as per Word default config
+    pub const HEADER_SPACING_AFTER: i32 = 80;
 }
 
 #[cfg(test)]

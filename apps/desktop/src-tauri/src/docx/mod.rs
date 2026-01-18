@@ -9,6 +9,7 @@ pub mod writer;
 pub mod excel;
 pub mod mixer;
 pub mod config;
+pub mod header_template;
 
 #[allow(dead_code)]
 #[derive(Debug)]

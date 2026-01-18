@@ -251,6 +251,11 @@ async fn export_mixed_exams(
             subject: "Toán học".to_string(),
             duration_minutes: 90,
             assets_dir: assets_dir.clone(),
+            // Header metadata (TODO: Get from frontend)
+            school_name: "TRƯỜNG THCS NGUYỄN AN NINH".to_string(),
+            exam_name: "KIỂM TRA GIỮA HKII".to_string(),
+            academic_year: "2024 - 2025".to_string(),
+            grade: "LỚP 7".to_string(),
         };
 
         let filename = format!("De_{}.docx", exam.exam_code);

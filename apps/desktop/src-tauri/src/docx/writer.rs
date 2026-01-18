@@ -20,6 +20,11 @@ pub struct ExamWriter {
     pub subject: String,
     pub duration_minutes: u32,
     pub assets_dir: PathBuf,
+    // Header metadata
+    pub school_name: String,
+    pub exam_name: String,
+    pub academic_year: String,
+    pub grade: String,
 }
 
 /// Image information for embedding
@@ -207,53 +212,208 @@ impl ExamWriter {
         doc
     }
 
-    /// Generate header section
+    /// Generate header section as a table with left and right columns
     fn generate_header(&self) -> String {
+        use super::header_template::StandardHeaderTemplate;
+        
+        let total_pages = StandardHeaderTemplate::estimate_pages(self.questions.len());
+        let page_text = StandardHeaderTemplate::format_page_count(total_pages);
+        
+        let font = NghiDinh30::FONT_NAME;
+        let size = NghiDinh30::FONT_SIZE_HEADER;
+        let line_spacing = NghiDinh30::HEADER_LINE_SPACING;
+        let spacing_after = NghiDinh30::HEADER_SPACING_AFTER;
+        
         format!(
             r#"
-        <w:p>
-            <w:pPr><w:jc w:val="center"/></w:pPr>
-            <w:r>
-                <w:rPr>
-                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
-                    <w:b/>
-                    <w:sz w:val="{}"/>
-                </w:rPr>
-                <w:t>{}</w:t>
-            </w:r>
-        </w:p>
-        <w:p>
-            <w:pPr><w:jc w:val="center"/></w:pPr>
-            <w:r>
-                <w:rPr>
-                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
-                    <w:b/>
-                    <w:sz w:val="{}"/>
-                </w:rPr>
-                <w:t>{} - Mã đề: {}</w:t>
-            </w:r>
-        </w:p>
-        <w:p>
-            <w:pPr><w:jc w:val="center"/></w:pPr>
-            <w:r>
-                <w:rPr>
-                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
-                    <w:sz w:val="{}"/>
-                </w:rPr>
-                <w:t>Môn: {} - Thời gian: {} phút</w:t>
-            </w:r>
-        </w:p>
+        <w:tbl>
+            <w:tblPr>
+                <w:tblW w:w="9576" w:type="dxa"/>
+                <w:tblBorders>
+                    <w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>
+                </w:tblBorders>
+            </w:tblPr>
+            <w:tblGrid>
+                <w:gridCol w:w="4788"/>
+                <w:gridCol w:w="4788"/>
+            </w:tblGrid>
+            <w:tr>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="4788" w:type="dxa"/></w:tcPr>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:u w:val="single"/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">{}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">Mã đề thi: {}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">ĐỀ CHÍNH THỨC</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">(Gồm </w:t>
+                        </w:r>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">{}</w:t>
+                        </w:r>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve"> trang)</w:t>
+                        </w:r>
+                    </w:p>
+                </w:tc>
+                <w:tc>
+                    <w:tcPr><w:tcW w:w="4788" w:type="dxa"/></w:tcPr>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">{}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">Năm học: {}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:b/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">Tên môn: {}, {}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:i/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">Thời gian làm bài: {}</w:t>
+                        </w:r>
+                    </w:p>
+                    <w:p>
+                        <w:pPr>
+                            <w:jc w:val="center"/>
+                            <w:spacing w:line="{}" w:lineRule="auto" w:after="{}"/>
+                        </w:pPr>
+                        <w:r>
+                            <w:rPr>
+                                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
+                                <w:i/>
+                                <w:sz w:val="{}"/>
+                            </w:rPr>
+                            <w:t xml:space="preserve">(Không kể thời gian phát đề)</w:t>
+                        </w:r>
+                    </w:p>
+                </w:tc>
+            </w:tr>
+        </w:tbl>
         <w:p/>
 "#,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
-            NghiDinh30::FONT_SIZE_TITLE,
-            self.exam_title,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
-            NghiDinh30::FONT_SIZE_EXAM_NAME,
-            self.exam_title, self.exam_code,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
-            NghiDinh30::FONT_SIZE_SUBTITLE,
-            self.subject, self.duration_minutes
+            // Left column - School name (bold + underline)
+            line_spacing, spacing_after, font, font, font, font, size, self.school_name,
+            // Exam code (bold)
+            line_spacing, spacing_after, font, font, font, font, size, self.exam_code,
+            // "ĐỀ CHÍNH THỨC" (bold)
+            line_spacing, spacing_after, font, font, font, font, size,
+            // Page count ("Gồm" normal, number bold, "trang" normal)
+            line_spacing, spacing_after, font, font, font, font, size,
+            font, font, font, font, size, page_text,
+            font, font, font, font, size,
+            // Right column - Exam name (bold)
+            line_spacing, spacing_after, font, font, font, font, size, self.exam_name,
+            // Academic year (bold)
+            line_spacing, spacing_after, font, font, font, font, size, self.academic_year,
+            // Subject and grade (bold)
+            line_spacing, spacing_after, font, font, font, font, size, self.subject, self.grade,
+            // Duration (italic)
+            line_spacing, spacing_after, font, font, font, font, size, self.duration_minutes,
+            // Distribution note (italic)
+            line_spacing, spacing_after, font, font, font, font, size
         )
     }
 
@@ -275,8 +435,11 @@ impl ExamWriter {
         if !stem_has_prefix {
             // Add question number prefix if not already in content
             xml.push_str(&format!(
-                r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
+                r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
                 NghiDinh30::FONT_SIZE_BODY,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_NAME,
+                NghiDinh30::FONT_NAME,
                 NghiDinh30::FONT_NAME,
                 num
             ));
@@ -316,8 +479,11 @@ impl ExamWriter {
                     format!("{}. ", option.label)
                 };
                 xml.push_str(&format!(
-                    r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}"/></w:rPr><w:t>{}</w:t></w:r>"#,
+                    r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/></w:rPr><w:t>{}</w:t></w:r>"#,
                     NghiDinh30::FONT_SIZE_BODY,
+                    NghiDinh30::FONT_NAME,
+                    NghiDinh30::FONT_NAME,
+                    NghiDinh30::FONT_NAME,
                     NghiDinh30::FONT_NAME,
                     label_str
                 ));
@@ -353,7 +519,9 @@ impl ExamWriter {
                     .replace('"', "&quot;");
                 
                 format!(
-                    r#"<w:r><w:rPr><w:rFonts w:ascii="{}" w:hAnsi="{}"/><w:sz w:val="{}"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                    r#"<w:r><w:rPr><w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/><w:sz w:val="{}"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                    NghiDinh30::FONT_NAME,
+                    NghiDinh30::FONT_NAME,
                     NghiDinh30::FONT_NAME,
                     NghiDinh30::FONT_NAME,
                     NghiDinh30::FONT_SIZE_BODY,
@@ -465,12 +633,14 @@ impl ExamWriter {
     <w:docDefaults>
         <w:rPrDefault>
             <w:rPr>
-                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
                 <w:sz w:val="{}"/>
             </w:rPr>
         </w:rPrDefault>
     </w:docDefaults>
 </w:styles>"#,
+            NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_NAME,
             NghiDinh30::FONT_NAME,
             NghiDinh30::FONT_NAME,
             NghiDinh30::FONT_SIZE_BODY
@@ -489,30 +659,30 @@ impl ExamWriter {
         </w:pPr>
         <w:r>
             <w:rPr>
-                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
                 <w:sz w:val="{}"/>
             </w:rPr>
             <w:fldChar w:fldCharType="begin"/>
         </w:r>
         <w:r>
             <w:rPr>
-                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
                 <w:sz w:val="{}"/>
             </w:rPr>
             <w:instrText xml:space="preserve"> PAGE </w:instrText>
         </w:r>
         <w:r>
             <w:rPr>
-                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}" w:cs="{}" w:eastAsia="{}"/>
                 <w:sz w:val="{}"/>
             </w:rPr>
             <w:fldChar w:fldCharType="end"/>
         </w:r>
     </w:p>
 </w:ftr>"#,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
-            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER
         )
     }
 

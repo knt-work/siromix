@@ -171,6 +171,7 @@ fn get_parsed(
 fn mix_exams(
     parsed_doc: ParsedDoc,
     num_variants: u32,
+    custom_exam_codes: Option<Vec<String>>,
 ) -> Result<Vec<crate::docx::mixer::MixedExam>, String> {
     use crate::docx::mixer;
 
@@ -182,7 +183,18 @@ fn mix_exams(
         return Err("No questions found in parsed document".to_string());
     }
 
-    let variants = mixer::mix_exams(parsed_doc.questions, num_variants as usize);
+    // Validate custom exam codes if provided
+    if let Some(ref codes) = custom_exam_codes {
+        if codes.len() != num_variants as usize {
+            return Err(format!(
+                "Number of custom exam codes ({}) must match number of variants ({})",
+                codes.len(),
+                num_variants
+            ));
+        }
+    }
+
+    let variants = mixer::mix_exams(parsed_doc.questions, num_variants as usize, custom_exam_codes);
     Ok(variants)
 }
 

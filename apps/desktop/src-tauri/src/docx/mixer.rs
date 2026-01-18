@@ -91,12 +91,17 @@ fn shuffle_options(
 /// # Arguments
 /// * `questions` - Original parsed questions
 /// * `num_variants` - Number of exam variants to generate
+/// * `custom_exam_codes` - Optional custom exam codes to use instead of random generation
 ///
 /// # Returns
 /// Vector of MixedExam with shuffled questions and options
-pub fn mix_exams(questions: Vec<Question>, num_variants: usize) -> Vec<MixedExam> {
+pub fn mix_exams(
+    questions: Vec<Question>,
+    num_variants: usize,
+    custom_exam_codes: Option<Vec<String>>,
+) -> Vec<MixedExam> {
     let mut variants = Vec::new();
-    let exam_codes = generate_exam_codes(num_variants);
+    let exam_codes = custom_exam_codes.unwrap_or_else(|| generate_exam_codes(num_variants));
 
     for (variant_idx, exam_code) in exam_codes.iter().enumerate() {
         // Use different seed for each variant
@@ -193,7 +198,7 @@ mod tests {
             },
         ];
 
-        let variants = mix_exams(questions, 3);
+        let variants = mix_exams(questions, 3, None);
         assert_eq!(variants.len(), 3);
         
         // Each variant should have questions

@@ -82,7 +82,11 @@ export const PreviewPage: FC = () => {
       }
 
       // Call Rust backend to mix exams (much faster than JS)
-      const variants = await mixExams(parsed, numVariants);
+      const variants = await mixExams(
+        parsed,
+        numVariants,
+        examMetadata?.customExamCodes
+      );
 
       // Mark final stage as complete
       setProgressStages(
@@ -225,9 +229,6 @@ export const PreviewPage: FC = () => {
                   <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
                     Xem trước đề đã nhập
                   </h1>
-                  <p className="mt-3 text-base text-slate-600">
-                    Job ID: <span className="font-mono text-slate-800">{jobId}</span>
-                  </p>
 
                   {loading && (
                     <p className="mt-6 text-sm text-slate-600">Đang tải dữ liệu đề...</p>
@@ -265,7 +266,7 @@ export const PreviewPage: FC = () => {
                                   return (
                                     <div
                                       key={opt.label}
-                                      className={`flex items-start gap-2 rounded-lg px-2 py-1 ${
+                                      className={`flex items-center gap-2 rounded-lg px-2 py-1 ${
                                         isCorrect
                                           ? "bg-emerald-50 font-semibold text-emerald-800"
                                           : ""

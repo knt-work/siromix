@@ -8,6 +8,7 @@ pub mod validator;
 pub mod writer;
 pub mod excel;
 pub mod mixer;
+pub mod config;
 
 #[allow(dead_code)]
 #[derive(Debug)]

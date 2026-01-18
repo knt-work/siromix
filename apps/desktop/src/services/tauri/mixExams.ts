@@ -30,10 +30,12 @@ export interface MixedOption {
  */
 export async function mixExams(
   parsedDoc: ParsedDoc,
-  numVariants: number
+  numVariants: number,
+  customExamCodes?: string[]
 ): Promise<MixedExam[]> {
   return invoke<MixedExam[]>("mix_exams", {
     parsedDoc,
     numVariants,
+    customExamCodes: customExamCodes || null,
   });
 }

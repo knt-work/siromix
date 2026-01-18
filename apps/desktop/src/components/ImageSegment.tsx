@@ -40,7 +40,7 @@ export const ImageSegment: FC<ImageSegmentProps> = ({ assetPath, className }) =>
         style={{ minHeight: "80px" }}
       >
         <div className="flex flex-col gap-2 p-3">
-          <div className="flex items-start gap-2">
+          <div className="flex items-center gap-2">
             <svg
               className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
               fill="none"

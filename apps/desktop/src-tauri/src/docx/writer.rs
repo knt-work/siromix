@@ -10,6 +10,7 @@ use zip::write::{FileOptions, ZipWriter};
 use zip::CompressionMethod;
 
 use super::model::{Question, Segment};
+use super::config::NghiDinh30;
 
 /// Exam writer that generates a complete DOCX file
 pub struct ExamWriter {
@@ -63,7 +64,11 @@ impl ExamWriter {
         zip.start_file("word/styles.xml", options)?;
         zip.write_all(self.generate_styles_xml().as_bytes())?;
 
-        // 6. Embed images
+        // 6. word/footer1.xml (page numbers)
+        zip.start_file("word/footer1.xml", options)?;
+        zip.write_all(self.generate_footer_xml().as_bytes())?;
+
+        // 7. Embed images
         self.embed_images(&mut zip, options, &image_map)?;
 
         zip.finish()?;
@@ -156,6 +161,7 @@ impl ExamWriter {
     <Default Extension="emf" ContentType="image/x-emf"/>
     <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
     <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+    <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
 </Types>"#
         )
     }
@@ -190,6 +196,9 @@ impl ExamWriter {
             doc.push_str(&self.generate_question_xml(idx + 1, question, image_map));
         }
 
+        // Add section properties with page setup (A4) and footer reference
+        doc.push_str(&self.generate_section_properties());
+
         doc.push_str(
             r#"
     </w:body>
@@ -206,9 +215,9 @@ impl ExamWriter {
             <w:pPr><w:jc w:val="center"/></w:pPr>
             <w:r>
                 <w:rPr>
-                    <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
                     <w:b/>
-                    <w:sz w:val="28"/>
+                    <w:sz w:val="{}"/>
                 </w:rPr>
                 <w:t>{}</w:t>
             </w:r>
@@ -217,9 +226,9 @@ impl ExamWriter {
             <w:pPr><w:jc w:val="center"/></w:pPr>
             <w:r>
                 <w:rPr>
-                    <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
                     <w:b/>
-                    <w:sz w:val="32"/>
+                    <w:sz w:val="{}"/>
                 </w:rPr>
                 <w:t>{} - Mã đề: {}</w:t>
             </w:r>
@@ -228,15 +237,23 @@ impl ExamWriter {
             <w:pPr><w:jc w:val="center"/></w:pPr>
             <w:r>
                 <w:rPr>
-                    <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>
-                    <w:sz w:val="24"/>
+                    <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                    <w:sz w:val="{}"/>
                 </w:rPr>
                 <w:t>Môn: {} - Thời gian: {} phút</w:t>
             </w:r>
         </w:p>
         <w:p/>
 "#,
-            self.exam_title, self.exam_title, self.exam_code, self.subject, self.duration_minutes
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_SIZE_TITLE,
+            self.exam_title,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_SIZE_EXAM_NAME,
+            self.exam_title, self.exam_code,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_SIZE_SUBTITLE,
+            self.subject, self.duration_minutes
         )
     }
 
@@ -258,7 +275,9 @@ impl ExamWriter {
         if !stem_has_prefix {
             // Add question number prefix if not already in content
             xml.push_str(&format!(
-                r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
+                r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}"/></w:rPr><w:t>Câu {}. </w:t></w:r>"#,
+                NghiDinh30::FONT_SIZE_BODY,
+                NghiDinh30::FONT_NAME,
                 num
             ));
         }
@@ -297,7 +316,9 @@ impl ExamWriter {
                     format!("{}. ", option.label)
                 };
                 xml.push_str(&format!(
-                    r#"<w:r><w:rPr><w:b/><w:sz w:val="26"/><w:rFonts w:ascii="Times New Roman"/></w:rPr><w:t>{}</w:t></w:r>"#,
+                    r#"<w:r><w:rPr><w:b/><w:sz w:val="{}"/><w:rFonts w:ascii="{}"/></w:rPr><w:t>{}</w:t></w:r>"#,
+                    NghiDinh30::FONT_SIZE_BODY,
+                    NghiDinh30::FONT_NAME,
                     label_str
                 ));
             }
@@ -332,7 +353,10 @@ impl ExamWriter {
                     .replace('"', "&quot;");
                 
                 format!(
-                    r#"<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="26"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                    r#"<w:r><w:rPr><w:rFonts w:ascii="{}" w:hAnsi="{}"/><w:sz w:val="{}"/></w:rPr><w:t xml:space="preserve">{}</w:t></w:r>"#,
+                    NghiDinh30::FONT_NAME,
+                    NghiDinh30::FONT_NAME,
+                    NghiDinh30::FONT_SIZE_BODY,
                     escaped
                 )
             }
@@ -343,14 +367,14 @@ impl ExamWriter {
                     if let Some(img_info) = image_map.get(asset_path) {
                         self.generate_image_xml(&img_info.rel_id, *width_emu, *height_emu)
                     } else {
-                        format!(r#"<w:r><w:rPr><w:sz w:val="26"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#)
+                        format!(r#"<w:r><w:rPr><w:sz w:val="{}"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#, NghiDinh30::FONT_SIZE_BODY)
                     }
                 } else {
                     // Fallback to image file dimensions
                     if let Some(img_info) = image_map.get(asset_path) {
                         self.generate_image_xml(&img_info.rel_id, img_info.width_emu, img_info.height_emu)
                     } else {
-                        format!(r#"<w:r><w:rPr><w:sz w:val="26"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#)
+                        format!(r#"<w:r><w:rPr><w:sz w:val="{}"/></w:rPr><w:t>[Image not found]</w:t></w:r>"#, NghiDinh30::FONT_SIZE_BODY)
                     }
                 }
             }
@@ -411,7 +435,8 @@ impl ExamWriter {
     fn generate_document_rels(&self, image_map: &HashMap<String, ImageInfo>) -> String {
         let mut rels = String::from(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rIdFooter1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
         );
 
         // Add image relationships
@@ -434,18 +459,85 @@ impl ExamWriter {
 
     /// Generate word/styles.xml
     fn generate_styles_xml(&self) -> String {
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
     <w:docDefaults>
         <w:rPrDefault>
             <w:rPr>
-                <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>
-                <w:sz w:val="26"/>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:sz w:val="{}"/>
             </w:rPr>
         </w:rPrDefault>
     </w:docDefaults>
-</w:styles>"#
-            .to_string()
+</w:styles>"#,
+            NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_NAME,
+            NghiDinh30::FONT_SIZE_BODY
+        )
+    }
+
+    /// Generate word/footer1.xml with page numbers (Nghị định 30)
+    /// Page numbers: size 13, centered, not shown on first page
+    fn generate_footer_xml(&self) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+    <w:p>
+        <w:pPr>
+            <w:jc w:val="center"/>
+        </w:pPr>
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:sz w:val="{}"/>
+            </w:rPr>
+            <w:fldChar w:fldCharType="begin"/>
+        </w:r>
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:sz w:val="{}"/>
+            </w:rPr>
+            <w:instrText xml:space="preserve"> PAGE </w:instrText>
+        </w:r>
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="{}" w:hAnsi="{}"/>
+                <w:sz w:val="{}"/>
+            </w:rPr>
+            <w:fldChar w:fldCharType="end"/>
+        </w:r>
+    </w:p>
+</w:ftr>"#,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER,
+            NghiDinh30::FONT_NAME, NghiDinh30::FONT_NAME, NghiDinh30::FONT_SIZE_PAGE_NUMBER
+        )
+    }
+
+    /// Generate section properties (Nghị định 30)
+    /// A4 paper (210mm x 297mm)
+    /// Margins: top/bottom 20mm, left 30mm, right 15mm
+    fn generate_section_properties(&self) -> String {
+        format!(
+            r#"
+        <w:sectPr>
+            <w:footerReference w:type="default" r:id="rIdFooter1"/>
+            <w:pgSz w:w="{}" w:h="{}"/>
+            <w:pgMar w:top="{}" w:right="{}" w:bottom="{}" w:left="{}" w:header="{}" w:footer="{}" w:gutter="0"/>
+            <w:cols w:space="708"/>
+            <w:titlePg/>
+        </w:sectPr>"#,
+            NghiDinh30::PAGE_WIDTH_TWIPS,
+            NghiDinh30::PAGE_HEIGHT_TWIPS,
+            NghiDinh30::MARGIN_TOP_TWIPS,
+            NghiDinh30::MARGIN_RIGHT_TWIPS,
+            NghiDinh30::MARGIN_BOTTOM_TWIPS,
+            NghiDinh30::MARGIN_LEFT_TWIPS,
+            NghiDinh30::MARGIN_HEADER_TWIPS,
+            NghiDinh30::MARGIN_FOOTER_TWIPS
+        )
     }
 
     /// Embed images into DOCX
